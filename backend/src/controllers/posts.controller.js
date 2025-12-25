@@ -11,9 +11,9 @@ exports.listPublic = async (req, res) => {
     const pageSize = Math.min(50, Number(req.query.pageSize) || 10);
     const offset = (page - 1) * pageSize;
 
-    const [rows] = await pool.execute(
+    const [rows] = await pool.execute(//alteramos para mostrar apenas aqules que tem published_at not null escondendo todos os drafts
       `SELECT id, title, slug, lead, featured_url, published_at 
-       FROM posts WHERE status='published' 
+       FROM posts WHERE status='published' AND published_at IS NOT NULL
        ORDER BY published_at DESC LIMIT ? OFFSET ?`,
       [pageSize, offset]
     );

@@ -14,3 +14,11 @@ app.use('/posts', require('./routes/posts'));  // public + admin
 
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => console.log(`🚀 Backend listening on ${PORT}`));
+
+
+const cors = require('cors');
+
+app.use(cors({
+  origin: 'http://localhost:5173', // frontend dev server
+  credentials: true,               // permite enviar cookies HttpOnly
+}));
