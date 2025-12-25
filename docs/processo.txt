@@ -1,0 +1,5 @@
+o crud de post já funciona,
+CREATE
+UPDATE
+GET
+DELETE, funcionão com exito, foi testado no postman
