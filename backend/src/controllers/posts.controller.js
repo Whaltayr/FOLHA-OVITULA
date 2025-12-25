@@ -1,7 +1,6 @@
 // src/controllers/posts.controller.js
-const pool = require('../config/db');
-const { makeSlug, validateTitle } = require('../utils/validation');
-
+const pool = require("../config/db");
+const { makeSlug, validateTitle } = require("../utils/validation");
 
 /**
  * List public posts (published). Supports pagination via ?page=1&pageSize=10
@@ -21,8 +20,8 @@ exports.listPublic = async (req, res) => {
 
     return res.json({ page, pageSize, data: rows });
   } catch (err) {
-    console.error('listPublic error', err);
-    return res.status(500).json({ message: 'Internal server error' });
+    console.error("listPublic error", err);
+    return res.status(500).json({ message: "Internal server error" });
   }
 };
 
@@ -36,21 +35,21 @@ exports.getBySlug = async (req, res) => {
       `SELECT id, title, slug, lead, content, featured_url, published_at, status FROM posts WHERE slug = ? LIMIT 1`,
       [slug]
     );
-    if (!rows.length) return res.status(404).json({ message: 'Not found' });
+    if (!rows.length) return res.status(404).json({ message: "Not found" });
 
     const post = rows[0];
     // If not published and no admin, block (optional)
-    if (post.status !== 'published') {
+    if (post.status !== "published") {
       // if request has no user or not admin, block
-      if (!req.user || req.user.role !== 'admin') {
-        return res.status(403).json({ message: 'Forbidden' });
+      if (!req.user || req.user.role !== "admin") {
+        return res.status(403).json({ message: "Forbidden" });
       }
     }
 
     return res.json({ post });
   } catch (err) {
-    console.error('getBySlug error', err);
-    return res.status(500).json({ message: 'Internal server error' });
+    console.error("getBySlug error", err);
+    return res.status(500).json({ message: "Internal server error" });
   }
 };
 
@@ -59,20 +58,21 @@ exports.getBySlug = async (req, res) => {
  */
 exports.adminList = async (req, res) => {
   try {
-    const [rows] = await pool.execute(`SELECT * FROM posts ORDER BY created_at DESC LIMIT 200`);
+    const [rows] = await pool.execute(
+      `SELECT * FROM posts ORDER BY created_at DESC LIMIT 200`
+    );
     return res.json(rows);
   } catch (err) {
-    console.error('adminList error', err);
-    return res.status(500).json({ message: 'Internal server error' });
+    console.error("adminList error", err);
+    return res.status(500).json({ message: "Internal server error" });
   }
 };
 
 // exemplo de wrapper para tratar erros duplicados
 function isDuplicateError(err) {
   // mysql2 fornece err.code === 'ER_DUP_ENTRY'
-  return err && err.code === 'ER_DUP_ENTRY';
+  return err && err.code === "ER_DUP_ENTRY";
 }
-
 
 /**
  * Admin: create post
@@ -80,113 +80,147 @@ function isDuplicateError(err) {
 
 exports.create = async (req, res) => {
   try {
-    const { title, slug, content, categoryId = null, status = 'draft', featuredUrl = null } = req.body;
+    const {
+      title,
+      slug,
+      content,
+      categoryId = null,
+      status = "draft",
+      featuredUrl = null,
+    } = req.body;
 
     if (!validateTitle(title)) {
-      return res.status(400).json({ message: 'Invalid title (3–255 chars)' });
+      return res.status(400).json({ message: "Invalid title (3–255 chars)" });
     }
 
     const cleanSlug = makeSlug(slug);
     if (!cleanSlug) {
-      return res.status(400).json({ message: 'Invalid slug' });
+      return res.status(400).json({ message: "Invalid slug" });
     }
 
     const [result] = await pool.execute(
       `INSERT INTO posts (title, slug, content, featured_url, status, category_id, author_id)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [title.trim(), cleanSlug, content || '', featuredUrl, status, categoryId, req.user.id]
+      [
+        title.trim(),
+        cleanSlug,
+        content || "",
+        featuredUrl,
+        status,
+        categoryId,
+        req.user.id,
+      ]
     );
 
     return res.status(201).json({ id: result.insertId });
-
   } catch (err) {
     if (isDuplicateError(err)) {
-      return res.status(409).json({ message: 'Slug already in use' });
+      return res.status(409).json({ message: "Slug already in use" });
     }
-    console.error('create post error', err);
-    return res.status(500).json({ message: 'Internal server error' });
+    console.error("create post error", err);
+    return res.status(500).json({ message: "Internal server error" });
   }
 };
 
-
-
+/**
+ * Admin: update post
+ */
 /**
  * Admin: update post
  */
 exports.update = async (req, res) => {
   try {
     const postId = Number(req.params.id);
-    if (!postId) return res.status(400).json({ message: 'Invalid post id' });
+    if (!postId) return res.status(400).json({ message: "Invalid post id" });
+
+    // 0) Ler o body primeiro (precisamos do `status` para decidir publish)
+    const {
+      title,
+      slug,
+      content,
+      categoryId = null,
+      status, // may be undefined
+      featuredUrl = null,
+    } = req.body;
 
     // 1) Garantir que o post existe — evita atualizar algo inexistente
-    const [existingRows] = await pool.execute('SELECT id, slug FROM posts WHERE id = ? LIMIT 1', [postId]);
-    if (!existingRows.length) return res.status(404).json({ message: 'Post not found' });
+    const [existingRows] = await pool.execute(
+      "SELECT id, status, published_at, slug FROM posts WHERE id = ? LIMIT 1",
+      [postId]
+    );
+    if (!existingRows.length) return res.status(404).json({ message: "Post not found" });
 
-    const { title, slug, content, categoryId = null, status, featuredUrl = null } = req.body;
+    const currentPost = existingRows[0];
 
-    // 2) Validações mínimas de entrada (se vierem)
+    // 2) Detectar transição draft -> published
+    const isPublishingNow = currentPost.status !== "published" && status === "published";
+
+    // 3) Validações mínimas e preparação dos campos
     const fields = [];
     const values = [];
 
     if (title !== undefined) {
       if (!validateTitle(title)) {
-        return res.status(400).json({ message: 'Invalid title (must be 3-255 chars)' });
+        return res.status(400).json({ message: "Invalid title (must be 3-255 chars)" });
       }
-      fields.push('title = ?');
+      fields.push("title = ?");
       values.push(title.trim());
     }
 
     if (slug !== undefined) {
       const clean = makeSlug(slug);
-      if (!clean) return res.status(400).json({ message: 'Invalid slug' });
-      fields.push('slug = ?');
+      if (!clean) return res.status(400).json({ message: "Invalid slug" });
+      fields.push("slug = ?");
       values.push(clean);
     }
 
     if (content !== undefined) {
-      fields.push('content = ?');
+      fields.push("content = ?");
       values.push(content);
     }
 
     if (featuredUrl !== undefined) {
-      fields.push('featured_url = ?');
+      fields.push("featured_url = ?");
       values.push(featuredUrl);
     }
 
     if (categoryId !== undefined) {
-      fields.push('category_id = ?');
+      fields.push("category_id = ?");
       values.push(categoryId);
     }
 
     if (status !== undefined) {
-      // opcional: validar status para ser 'draft' ou 'published'
-      if (!['draft', 'published'].includes(status)) {
+      if (!["draft", "published"].includes(status)) {
         return res.status(400).json({ message: "Invalid status; allowed: 'draft' or 'published'" });
       }
-      fields.push('status = ?');
+      fields.push("status = ?");
       values.push(status);
     }
 
-    if (fields.length === 0) return res.status(400).json({ message: 'No fields to update' });
+    if (isPublishingNow) {
+      // published_at is set by DB function NOW() — it is not a parameterized value
+      fields.push("published_at = NOW()");
+    }
 
-    // 3) Montar e executar UPDATE
-    values.push(postId); // valor para WHERE id = ?
-    const sql = `UPDATE posts SET ${fields.join(', ')} WHERE id = ?`;
+    if (fields.length === 0) return res.status(400).json({ message: "No fields to update" });
+
+    // 4) Montar SQL e executar (values order must match the placeholders)
+    const sql = `UPDATE posts SET ${fields.join(", ")} WHERE id = ?`;
+    values.push(postId); // id param for WHERE
 
     try {
       await pool.execute(sql, values);
       return res.json({ ok: true });
     } catch (err) {
-      // 4) Tratar erro de slug duplicado de forma amigável
-      if (err && err.code === 'ER_DUP_ENTRY') {
-        return res.status(409).json({ message: 'Slug already in use' });
+      if (err && err.code === "ER_DUP_ENTRY") {
+        return res.status(409).json({ message: "Slug already in use" });
       }
-      console.error('update post error (db execute):', err);
-      return res.status(500).json({ message: 'Internal server error' });
+      console.error("update post error (db execute):", err);
+      return res.status(500).json({ message: "Internal server error" });
     }
   } catch (err) {
-    console.error('update post error:', err);
-    return res.status(500).json({ message: 'Internal server error' });
+    console.error("update post error:", err);
+    return res.status(500).json({ message: "Internal server error" });
   }
 };
 
@@ -197,12 +231,12 @@ exports.update = async (req, res) => {
 exports.remove = async (req, res) => {
   try {
     const postId = Number(req.params.id);
-    if (!postId) return res.status(400).json({ message: 'Invalid post id' });
+    if (!postId) return res.status(400).json({ message: "Invalid post id" });
 
-    await pool.execute('DELETE FROM posts WHERE id = ?', [postId]);
+    await pool.execute("DELETE FROM posts WHERE id = ?", [postId]);
     return res.json({ ok: true });
   } catch (err) {
-    console.error('delete post error', err);
-    return res.status(500).json({ message: 'Internal server error' });
+    console.error("delete post error", err);
+    return res.status(500).json({ message: "Internal server error" });
   }
 };
