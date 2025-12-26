@@ -1,22 +1,17 @@
-import { useEffect, useState } from 'react';
-import { getPosts } from './services/posts';
+//App.jsx
+import MainLayout from "./layouts/MainLayout";
+import Home from "./pages/Home";
+import PostDetail from "./pages/PostDetail"
+import {Routes, Route } from "react-router-dom"
 
-export default function Home() {
-  const [posts, setPosts] = useState([]);
-
-  useEffect(() => {
-    getPosts().then(data => setPosts(data.data)).catch(console.error);
-  }, []);
-
+export default function App() {
   return (
-    <div>
-      <h1>Posts</h1>
-      {posts.map(post => (
-        <div key={post.id}>
-          <h2>{post.title}</h2>
-          <p>{post.slug}</p>
-        </div>
-      ))}
-    </div>
+    <MainLayout>
+     <Routes> 
+      <Route path="/" element={<Home/>}></Route>
+      <Route path="/post/:slug" element={<PostDetail/>}></Route>
+      <Route path="*" element={<div className="p-6">Page Not Found</div>}></Route>
+     </Routes>
+    </MainLayout>
   );
 }
