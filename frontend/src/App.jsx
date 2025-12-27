@@ -19,8 +19,8 @@ export default function App() {
       <Route path="/login" element={<Login />} />
       <Route path="/admin" element={<ProtectedRoute role = "admin"><AdminDashboard/></ProtectedRoute>}></Route>
       <Route path="/admin/posts" element={<ProtectedRoute role = "admin"><AdminPosts/></ProtectedRoute>}></Route>
-      <Route path="/admin/post/new" element={<ProtectedRoute role="admin"><AdminPostForm/></ProtectedRoute>}></Route>
-      <Route path="/admin/post/:id/new" element={<ProtectedRoute role="admin"><AdminPostForm/></ProtectedRoute>}></Route>
+      <Route path="/admin/posts/new" element={<ProtectedRoute role="admin"><AdminPostForm/></ProtectedRoute>}></Route>
+      <Route path="/admin/posts/:id/edit" element={<ProtectedRoute role="admin"><AdminPostForm/></ProtectedRoute>}></Route>
 
       <Route path="/post/:slug" element={<PostDetail/>}></Route>
       {/* <Route path="/admin" element={<ProtectedRoute role="admin"><AdminDashboard/></ProtectedRoute>} /> */}

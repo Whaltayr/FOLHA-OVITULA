@@ -51,7 +51,7 @@ export default function AdminPosts() {
                             <div className="flex gap-2">
                                 <Link to={`/admin/posts/${p.id}/edit`} className='px-3 py-1 mt-2 bg-yellow-50 border rounded-4xl text-sm'>Editar</Link>
                                 <button onClick={()=> handeDelete(p.id)}
-                                    className='px-3 py-1  bg-red-50 border rounded-4xl mt-2 text-sm text-red-600'>Deletar</button>
+                                    className='px-3 py-1  bg-red-50 border rounded-4xl mt-2 text-sm text-red-600' disabled={deletingId === p.id}>{deletingId ===p.id ? 'Deletando...' : 'Deletar'}</button>
                             </div>
                         </div>
                     </div>
