@@ -11,7 +11,8 @@ exports.listPublic = async (req, res) => {
     const pageSize = Math.min(50, Number(req.query.pageSize) || 10);
     const offset = (page - 1) * pageSize;
 
-    const [rows] = await pool.execute(//alteramos para mostrar apenas aqules que tem published_at not null escondendo todos os drafts
+    const [rows] = await pool.execute(
+      //alteramos para mostrar apenas aqules que tem published_at not null escondendo todos os drafts
       `SELECT id, title, slug, lead, featured_url, published_at 
        FROM posts WHERE status='published' AND published_at IS NOT NULL
        ORDER BY published_at DESC LIMIT ? OFFSET ?`,
@@ -98,9 +99,11 @@ exports.create = async (req, res) => {
       return res.status(400).json({ message: "Invalid slug" });
     }
 
+    const isPublished = status === "published";
+
     const [result] = await pool.execute(
-      `INSERT INTO posts (title, slug, content, featured_url, status, category_id, author_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO posts (title, slug, content, featured_url, status, category_id, author_id, published_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         title.trim(),
         cleanSlug,
@@ -109,6 +112,7 @@ exports.create = async (req, res) => {
         status,
         categoryId,
         req.user.id,
+        isPublished ? new Date() : null,
       ]
     );
 
@@ -148,12 +152,14 @@ exports.update = async (req, res) => {
       "SELECT id, status, published_at, slug FROM posts WHERE id = ? LIMIT 1",
       [postId]
     );
-    if (!existingRows.length) return res.status(404).json({ message: "Post not found" });
+    if (!existingRows.length)
+      return res.status(404).json({ message: "Post not found" });
 
     const currentPost = existingRows[0];
 
     // 2) Detectar transição draft -> published
-    const isPublishingNow = currentPost.status !== "published" && status === "published";
+    const isPublishingNow =
+      currentPost.status !== "published" && status === "published";
 
     // 3) Validações mínimas e preparação dos campos
     const fields = [];
@@ -161,7 +167,9 @@ exports.update = async (req, res) => {
 
     if (title !== undefined) {
       if (!validateTitle(title)) {
-        return res.status(400).json({ message: "Invalid title (must be 3-255 chars)" });
+        return res
+          .status(400)
+          .json({ message: "Invalid title (must be 3-255 chars)" });
       }
       fields.push("title = ?");
       values.push(title.trim());
@@ -191,7 +199,9 @@ exports.update = async (req, res) => {
 
     if (status !== undefined) {
       if (!["draft", "published"].includes(status)) {
-        return res.status(400).json({ message: "Invalid status; allowed: 'draft' or 'published'" });
+        return res
+          .status(400)
+          .json({ message: "Invalid status; allowed: 'draft' or 'published'" });
       }
       fields.push("status = ?");
       values.push(status);
@@ -202,7 +212,8 @@ exports.update = async (req, res) => {
       fields.push("published_at = NOW()");
     }
 
-    if (fields.length === 0) return res.status(400).json({ message: "No fields to update" });
+    if (fields.length === 0)
+      return res.status(400).json({ message: "No fields to update" });
 
     // 4) Montar SQL e executar (values order must match the placeholders)
     const sql = `UPDATE posts SET ${fields.join(", ")} WHERE id = ?`;
@@ -223,7 +234,6 @@ exports.update = async (req, res) => {
     return res.status(500).json({ message: "Internal server error" });
   }
 };
-
 
 /**
  * Admin: delete post

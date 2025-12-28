@@ -3,3 +3,6 @@ CREATE
 UPDATE
 GET
 DELETE, funcionão com exito, foi testado no postman
+
+admin post is working fine 
+just need to perfect it
