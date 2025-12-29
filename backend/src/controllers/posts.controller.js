@@ -5,17 +5,33 @@ const { makeSlug, validateTitle } = require("../utils/validation");
 /**
  * List public posts (published). Supports pagination via ?page=1&pageSize=10
  */
+// ---------- listPublic com promoção "on read" ----------
+// src/controllers/posts.controller.js
 exports.listPublic = async (req, res) => {
   try {
     const page = Math.max(1, Number(req.query.page) || 1);
     const pageSize = Math.min(50, Number(req.query.pageSize) || 10);
     const offset = (page - 1) * pageSize;
 
+    // === 1) Promoção "on read"
+    // Promove (status -> 'published') todos os posts com status 'pending'
+    // cuja published_at já passou. Mantemos published_at (não sobrescrevemos),
+    // apenas atualizamos status e updated_at.
+    await pool.execute(
+      `UPDATE posts
+       SET status = 'published', updated_at = NOW()
+       WHERE status = 'pending'
+         AND published_at IS NOT NULL
+         AND published_at <= NOW()`
+    );
+
+    // === 2) Seleção pública — só mostra publicados e cuja published_at <= NOW()
     const [rows] = await pool.execute(
-      //alteramos para mostrar apenas aqules que tem published_at not null escondendo todos os drafts
-      `SELECT id, title, slug, lead, featured_url, published_at 
-       FROM posts WHERE status='published' AND published_at IS NOT NULL
-       ORDER BY published_at DESC LIMIT ? OFFSET ?`,
+      `SELECT id, title, slug, lead, featured_url, published_at
+       FROM posts
+       WHERE status = 'published' AND published_at IS NOT NULL AND published_at <= NOW()
+       ORDER BY published_at DESC
+       LIMIT ? OFFSET ?`,
       [pageSize, offset]
     );
 
@@ -25,6 +41,7 @@ exports.listPublic = async (req, res) => {
     return res.status(500).json({ message: "Internal server error" });
   }
 };
+
 
 /**
  * Get one post by slug (public)
