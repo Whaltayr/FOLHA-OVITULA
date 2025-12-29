@@ -13,24 +13,13 @@ exports.listPublic = async (req, res) => {
     const pageSize = Math.min(50, Number(req.query.pageSize) || 10);
     const offset = (page - 1) * pageSize;
 
-    // === 1) Promoção "on read"
-    // Promove (status -> 'published') todos os posts com status 'pending'
-    // cuja published_at já passou. Mantemos published_at (não sobrescrevemos),
-    // apenas atualizamos status e updated_at.
-    await pool.execute(
-      `UPDATE posts
-       SET status = 'published', updated_at = NOW()
-       WHERE status = 'pending'
-         AND published_at IS NOT NULL
-         AND published_at <= NOW()`
-    );
-
-    // === 2) Seleção pública — só mostra publicados e cuja published_at <= NOW()
+    // JOIN com users para pegar o nome do autor (u.name AS author_name)
     const [rows] = await pool.execute(
-      `SELECT id, title, slug, lead, featured_url, published_at
-       FROM posts
-       WHERE status = 'published' AND published_at IS NOT NULL AND published_at <= NOW()
-       ORDER BY published_at DESC
+      `SELECT p.id, p.title, p.slug, p.lead, p.featured_url, p.published_at, u.name AS author_name
+       FROM posts p
+       LEFT JOIN users u ON p.author_id = u.id
+       WHERE p.status = 'published' AND p.published_at IS NOT NULL AND p.published_at <= NOW()
+       ORDER BY p.published_at DESC
        LIMIT ? OFFSET ?`,
       [pageSize, offset]
     );
@@ -42,23 +31,24 @@ exports.listPublic = async (req, res) => {
   }
 };
 
-
 /**
- * Get one post by slug (public)
+ * Get one post by slug (public) — agora com author_name.
  */
 exports.getBySlug = async (req, res) => {
   try {
     const slug = req.params.slug;
     const [rows] = await pool.execute(
-      `SELECT id, title, slug, lead, content, featured_url, published_at, status FROM posts WHERE slug = ? LIMIT 1`,
+      `SELECT p.id, p.title, p.slug, p.lead, p.content, p.featured_url, p.published_at, p.status, u.name AS author_name
+       FROM posts p
+       LEFT JOIN users u ON p.author_id = u.id
+       WHERE p.slug = ? LIMIT 1`,
       [slug]
     );
     if (!rows.length) return res.status(404).json({ message: "Not found" });
 
     const post = rows[0];
-    // If not published and no admin, block (optional)
+    // se não publicado, só admin vê
     if (post.status !== "published") {
-      // if request has no user or not admin, block
       if (!req.user || req.user.role !== "admin") {
         return res.status(403).json({ message: "Forbidden" });
       }
@@ -72,12 +62,15 @@ exports.getBySlug = async (req, res) => {
 };
 
 /**
- * Admin: list all posts (including drafts)
+ * Admin: list all posts (including drafts) — incluir author_name para UI admin.
  */
 exports.adminList = async (req, res) => {
   try {
     const [rows] = await pool.execute(
-      `SELECT * FROM posts ORDER BY created_at DESC LIMIT 200`
+      `SELECT p.*, u.name AS author_name
+       FROM posts p
+       LEFT JOIN users u ON p.author_id = u.id
+       ORDER BY p.created_at DESC LIMIT 200`
     );
     return res.json(rows);
   } catch (err) {

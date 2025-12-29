@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { getPosts } from '../services/api';
 import { Link } from 'react-router-dom';
+import { assetUrl } from '../../../backend/src/utils/asset';
 
 export default function Home() {
   const [posts, setPosts] = useState([]);
@@ -48,17 +49,30 @@ export default function Home() {
    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 p-6">
     <div className="md:col-span-2 space-y-4">
       {posts.length === 0 && <div className="text-gray-600">No posts yet.</div>}
-      {posts.map(p => (
-        <article key={p.id} className="bg-white p-6 rounded-2xl shadow-sm border">
-          <Link to={`/post/${p.slug}`} className="text-xl font-semibold hover:underline">
-            {p.title}
-          </Link>
-          <div className="text-sm text-gray-500 mt-1">
-            {p.published_at ? new Date(p.published_at).toLocaleString() : 'Draft'}
-          </div>
-          <p className="text-gray-700 mt-3">{p.lead || (p.content ? (p.content.slice(0, 160) + '…') : '')}</p>
-        </article>
-      ))}
+ {posts.map(p => (
+  <article key={p.id} className="bg-white rounded-2xl p-6 shadow-sm border">
+    {/* imagem de destaque — se existir */}
+ 
+      {p.featured_url ? (
+        <img
+          src={assetUrl(p.featured_url)}
+          alt={p.title}
+          className="w-full h-44 object-cover rounded mb-4"
+          onError={(e) => { e.currentTarget.style.display = 'none'; }}
+        />
+      ) : null}
+      <Link to={`/post/${p.slug}`} className="text-xl font-semibold hover:underline">
+        {p.title}
+      </Link>
+      <div className="text-sm text-gray-500 mt-1">
+        {p.published_at ? new Date(p.published_at).toLocaleString() : 'Draft'}
+        {/* mostrar autor se existir */}
+        {p.author_name ? <> · {p.author_name}</> : null}
+      </div>
+      <p className="text-gray-700 mt-3">{p.lead || (p.content ? (p.content.slice(0, 160) + '…') : '')}</p>
+    
+  </article>
+))}
 
       {/* Pagination controls */}
       <div className="flex items-center justify-between mt-6">

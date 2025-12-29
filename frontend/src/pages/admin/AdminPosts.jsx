@@ -1,21 +1,15 @@
 // frontend/src/pages/admin/AdminPosts.jsx
-import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
-import { getAdminPosts, deletePost } from "../../services/api";
+import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { getAdminPosts, deletePost } from '../../services/api';
+import { assetUrl } from '../../../../backend/src/utils/asset';
 
-/**
- * AdminPosts — versão corrigida com UI em português
- */
-
-const STATUS_LABEL = {
-  published: "Publicado",
-  draft: "Rascunho",
-  pending: "Agendado",
-};
-
-const STATUS_COLOR = {
-  published: "bg-emerald-50 text-emerald-700 border-emerald-100",
-  draft: "bg-gray-50 text-gray-600 border-gray-100",
+// Tradução de status (backend → humano)
+// Mantemos aqui porque é regra de UI, não de negócio
+const LABEL = {
+  published: 'Publicado',
+  draft: 'Rascunho',
+  pending: 'Agendado'
 };
 
 export default function AdminPosts() {
@@ -23,291 +17,122 @@ export default function AdminPosts() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Controles UI (valores consistentes)
-  const [query, setQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all"); // all | published | draft
-  const [sort, setSort] = useState("newest"); // newest | oldest
-  const [page, setPage] = useState(1); // number
-  const [pageSize, setPageSize] = useState(8);
-  const [deletingId, setDeletingId] = useState(null);
-
-  // carregar posts do backend
+  // Busca os posts assim que a página carrega
   useEffect(() => {
-    let mounted = true;
-    async function load() {
-      try {
-        setLoading(true);
-        setError(null);
-        const data = await getAdminPosts(); // espera array
-        if (!mounted) return; // set state apenas se ainda montado
-        setPosts(Array.isArray(data) ? data : []);
-      } catch (err) {
-        if (!mounted) return;
-        setError(err.message || "Falha ao carregar posts");
-      } finally {
-        if (!mounted) return;
-        setLoading(false);
-      }
-    }
-    load();
-    return () => {
-      mounted = false;
-    };
+    getAdminPosts()
+      .then(setPosts)
+      .catch(err => setError(err.message || 'Erro ao carregar posts'))
+      .finally(() => setLoading(false));
   }, []);
 
-  // lista filtrada + ordenada
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    let result = posts.slice();
-
-    if (statusFilter !== "all") {
-      result = result.filter((p) => (p.status || "draft") === statusFilter);
-    }
-
-    if (q) {
-      result = result.filter(
-        (p) =>
-          (p.title || "").toLowerCase().includes(q) ||
-          (p.slug || "").toLowerCase().includes(q)
-      );
-    }
-
-    result.sort((a, b) => {
-      const ad = a.published_at ? new Date(a.published_at).getTime() : 0;
-      const bd = b.published_at ? new Date(b.published_at).getTime() : 0;
-      return sort === "newest" ? bd - ad : ad - bd;
-    });
-    return result;
-  }, [posts, query, statusFilter, sort]);
-
-  // paginação
-  const total = filtered.length;
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  useEffect(() => {
-    if (page > totalPages) setPage(totalPages);
-  }, [totalPages, page]);
-
-  const paged = useMemo(() => {
-    const start = (page - 1) * pageSize;
-    return filtered.slice(start, start + pageSize);
-  }, [filtered, page, pageSize]);
-
-  // deletar post — confirmação + UI otimista
+  // Apagar post (com confirmação humana)
   async function handleDelete(id) {
-    if (
-      !confirm(
-        "Tem certeza que deseja deletar este artigo? Esta ação é irreversível."
-      )
-    )
-      return;
-    setDeletingId(id);
+    if (!confirm('Deseja realmente apagar este artigo?')) return;
     try {
       await deletePost(id);
-      setPosts((prev) => prev.filter((p) => p.id !== id));
-    } catch (err) {
-      alert("Falha ao deletar: " + (err.message || ""));
-    } finally {
-      setDeletingId(null);
-    }
-  }
-
-  // helper de formatação de data
-  function formatDate(d) {
-    if (!d) return "-";
-    try {
-      return new Date(d).toLocaleString();
+      // remove da lista sem recarregar a página
+      setPosts(prev => prev.filter(p => p.id !== id));
     } catch {
-      return d;
+      alert('Erro ao apagar artigo');
     }
   }
 
-  /*--------------------RENDER--------------------- */
-  if (loading) {
-    return <div className="p-6">Carregando...</div>;
-  }
-  if (error) {
-    return <div className="p-6 text-red-600">Erro: {error}</div>;
-  }
+  if (loading) return <div className="p-6">Carregando artigos…</div>;
+  if (error) return <div className="p-6 text-red-600">{error}</div>;
 
   return (
-    <div className="max-w-5xl mx-auto p-6">
-      <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
-        <div>
-          <h1 className="font-bold text-2xl">Artigos • Admin</h1>
-          <div className="text-sm text-gray-500 mt-1">
-            Gerir artigos: criar, editar, publicar e remover.
-          </div>
-        </div>
-
-        <div className="flex gap-2">
-          <Link
-            to="/admin/posts/new"
-            className="px-3 py-2 rounded bg-blue-600 text-white"
-          >
-            Novo artigo
-          </Link>
-          <Link
-            to="/"
-            className="px-3 py-2 bg-white shadow border rounded text-sm text-gray-700"
-          >
-            Ver site
-          </Link>
-        </div>
-      </header>
-
-      {/* Controles */}
-      <div className="bg-white p-4 rounded-lg shadow-sm mb-6">
-        <div className="flex flex-col md:flex-row md:items-center md:gap-4">
-          <div className="flex-1">
-            <input
-              value={query}
-              onChange={(e) => {
-                setQuery(e.target.value);
-                setPage(1);
-              }}
-              placeholder="Pesquisar por título ou slug..."
-              className="w-full border px-3 py-2 rounded focus:outline-none focus:ring-2 focus:ring-sky-300"
-              aria-label="Pesquisar artigos"
-            />
-          </div>
-
-          <div className="mt-3 md:mt-0 flex items-center gap-2">
-            <select
-              value={statusFilter}
-              onChange={(e) => {
-                setStatusFilter(e.target.value);
-                setPage(1);
-              }}
-              className="px-3 py-2 border rounded"
-            >
-              <option value="all">Todos</option>
-              <option value="published">Publicados</option>
-              <option value="draft">Rascunhos</option>
-            </select>
-
-            <select
-              value={sort}
-              onChange={(e) => setSort(e.target.value)}
-              className="px-3 py-2 border rounded"
-            >
-              <option value="newest">Mais recentes</option>
-              <option value="oldest">Mais antigos</option>
-            </select>
-
-            <select
-              value={pageSize}
-              onChange={(e) => {
-                setPageSize(Number(e.target.value));
-                setPage(1);
-              }}
-              className="px-3 py-2 border rounded"
-            >
-              <option value={6}>6 / página</option>
-              <option value={8}>8 / página</option>
-              <option value={12}>12 / página</option>
-            </select>
-          </div>
-        </div>
+    <div className="max-w-6xl mx-auto p-6">
+      {/* Cabeçalho */}
+      <div className="flex justify-between items-center mb-6">
+        <h1 className="text-2xl font-bold">Artigos</h1>
+        <Link
+          to="/admin/posts/new"
+          className="px-4 py-2 bg-green-600 text-white rounded"
+        >
+          Novo artigo
+        </Link>
       </div>
 
-      {/* ÁREA DE LISTAGEM */}
+      {/* Lista */}
       <div className="space-y-4">
-        {paged.length === 0 ? (
-          <div className="p-6 bg-white rounded text-gray-600">
-            Nenhum artigo encontrado para os filtros selecionados.
-          </div>
-        ) : (
-          paged.map((post) => (
-            <div
-              key={post.id}
-              className="bg-white p-4 rounded-lg border flex flex-col md:flex-row md:items-start md:justify-between gap-4"
-            >
-              <div className="flex-1">
-                <div className="flex items-start gap-3">
-                  <div>
-                    <div className="text-lg font-semibold">
-                      <Link
-                        to={`/post/${post.slug}`}
-                        className="hover:underline"
-                      >
-                        {post.title || "Sem título"}
-                      </Link>
-                    </div>
-                    <div className="text-sm text-gray-500 mt-1">
-                      {post.lead ||
-                        (post.content ? post.content.slice(0, 160) + "…" : "")}
-                    </div>
-                    <div className="mt-2 text-xs text-gray-500">
-                      <span>Autor: {post.author_name || "Desconhecido"}</span>
-                      <span className="mx-2">•</span>
-                      <span>{post.slug}</span>
-                    </div>
+        {posts.map(post => (
+          <div
+            key={post.id}
+            className="bg-white p-4 rounded-xl shadow-sm border flex gap-4"
+          >
+            {/* Imagem de destaque */}
+            {post.featured_url ? (
+              <img
+                src={assetUrl(post.featured_url)}
+                alt={post.title}
+                className="w-32 h-20 object-cover rounded"
+                // se a imagem quebrar, escondemos para não estragar o layout
+                onError={e => (e.currentTarget.style.display = 'none')}
+              />
+            ) : (
+              // placeholder visual quando não há imagem
+              <div className="w-32 h-20 bg-gray-100 rounded flex items-center justify-center text-xs text-gray-400">
+                Sem imagem
+              </div>
+            )}
+
+            {/* Conteúdo textual */}
+            <div className="flex-1">
+              <div className="flex justify-between items-start">
+                <div>
+                  {/* Título */}
+                  <h2 className="text-lg font-semibold">
+                    {post.title || 'Sem título'}
+                  </h2>
+
+                  {/* Meta: autor + status + data */}
+                  <div className="text-sm text-gray-500 mt-1">
+                    <span>Autor: {post.author_name || 'Desconhecido'}</span>
+                    <span className="mx-2">•</span>
+                    <span>Status: {LABEL[post.status]}</span>
+                    {post.published_at && (
+                      <>
+                        <span className="mx-2">•</span>
+                        <span>
+                          {new Date(post.published_at).toLocaleString()}
+                        </span>
+                      </>
+                    )}
                   </div>
                 </div>
-              </div>
 
-              <div className="shrink-0 flex items-center gap-4">
-                <div
-                  className={`px-2 py-1 border rounded text-sm ${
-                    STATUS_COLOR[post.status] || STATUS_COLOR.draft
-                  }`}
-                >
-                  {STATUS_LABEL[post.status] || post.status}
-                </div>
-
-                <div className="text-xs text-gray-500 text-right">
-                  {post.published_at
-                    ? formatDate(post.published_at)
-                    : "Não publicado"}
-                </div>
-
-                <div className="flex items-center gap-2">
+                {/* Ações */}
+                <div className="flex gap-2">
                   <Link
                     to={`/admin/posts/${post.id}/edit`}
-                    className="px-2 py-1 border rounded text-sm hover:bg-yellow-50"
+                    className="px-3 py-1 text-sm bg-blue-600 text-white rounded"
                   >
                     Editar
                   </Link>
                   <button
                     onClick={() => handleDelete(post.id)}
-                    className="px-2 py-1 border rounded text-sm text-red-600 hover:bg-red-50"
-                    disabled={deletingId === post.id}
-                    aria-label={`Remover artigo ${post.title}`}
+                    className="px-3 py-1 text-sm bg-red-600 text-white rounded"
                   >
-                    {deletingId === post.id ? "Removendo…" : "Remover"}
+                    Apagar
                   </button>
                 </div>
               </div>
-            </div>
-          ))
-        )}
-      </div>
 
-      {/* rodapé de paginação */}
-      <div className="mt-6 flex items-center justify-between">
-        <div className="text-sm text-gray-600">
-          Mostrando {Math.min((page - 1) * pageSize + 1, total)}–
-          {Math.min(page * pageSize, total)} de {total}
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            className="px-3 py-1 border rounded disabled:opacity-50"
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-            disabled={page <= 1}
-          >
-            Anterior
-          </button>
-          <div className="text-sm">
-            Página {page} / {totalPages}
+              {/* Excerpt */}
+              {post.lead && (
+                <p className="text-gray-700 mt-2 text-sm">
+                  {post.lead}
+                </p>
+              )}
+            </div>
           </div>
-          <button
-            className="px-3 py-1 border rounded disabled:opacity-50"
-            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-            disabled={page >= totalPages}
-          >
-            Seguinte
-          </button>
-        </div>
+        ))}
+
+        {posts.length === 0 && (
+          <div className="text-center text-gray-500 py-10">
+            Nenhum artigo encontrado.
+          </div>
+        )}
       </div>
     </div>
   );

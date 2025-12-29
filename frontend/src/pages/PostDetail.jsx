@@ -2,6 +2,7 @@
 import { useParams, Link } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { getPostBySlug } from "../services/api";
+import { assetUrl } from "../../../backend/src/utils/asset";
 import DOMPurify from "dompurify";
 
 function formatDate(dt) {
@@ -97,30 +98,22 @@ export default function PostDetail() {
 
       <h1 className="text-3xl font-extrabold mt-4">{post.title}</h1>
 
-      <div className="flex items-center gap-3 text-sm text-gray-500 mt-2">
-        <div>{post.author_name || "Folha Ovitula"}</div>
-        <div>•</div>
-        <div>{post.published_at ? formatDate(post.published_at) : "Draft"}</div>
-        {post.category && (
-          <>
-            <div>•</div>
-            <div className="text-xs px-2 py-1 bg-gray-100 rounded">
-              {post.category}
-            </div>
-          </>
-        )}
-      </div>
+<div className="flex items-center gap-3 text-sm text-gray-500 mt-2">
+  <div>{post.author_name || 'Folha Ovitula'}</div>
+  <div>•</div>
+  <div>{post.published_at ? formatDate(post.published_at) : 'Draft'}</div>
+  {post.category && <><div>•</div><div className="text-xs px-2 py-1 bg-gray-100 rounded">{post.category}</div></>}
+</div>
 
-      {post.featured_url ? (
-        <img
-          src={post.featured_url}
-          alt={post.title}
-          className="w-full my-6 rounded object-cover max-h-105"
-          onError={(e) => {
-            e.currentTarget.src = "/fallback-image.png";
-          }}
-        />
-      ) : null}
+{post.featured_url ? (
+  <img
+    src={assetUrl(post.featured_url)}
+    alt={post.title}
+    className="w-full my-6 rounded object-cover max-h-[420px]"
+    onError={(e)=>{ e.currentTarget.src='/fallback-image.png'; }}
+  />
+) : null}
+
 
       {post.lead && <p className="text-lg text-gray-700 mt-2">{post.lead}</p>}
 
