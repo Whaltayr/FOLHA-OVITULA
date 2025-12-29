@@ -7,7 +7,13 @@ import { getAdminPosts, deletePost } from "../../services/api";
  * AdminPosts — versão corrigida com UI em português
  */
 
-const STATUS_COLORS = {
+const STATUS_LABEL = {
+  published: "Publicado",
+  draft: "Rascunho",
+  pending: "Agendado",
+};
+
+const STATUS_COLOR = {
   published: "bg-emerald-50 text-emerald-700 border-emerald-100",
   draft: "bg-gray-50 text-gray-600 border-gray-100",
 };
@@ -88,7 +94,12 @@ export default function AdminPosts() {
 
   // deletar post — confirmação + UI otimista
   async function handleDelete(id) {
-    if (!confirm("Tem certeza que deseja deletar este artigo? Esta ação é irreversível.")) return;
+    if (
+      !confirm(
+        "Tem certeza que deseja deletar este artigo? Esta ação é irreversível."
+      )
+    )
+      return;
     setDeletingId(id);
     try {
       await deletePost(id);
@@ -215,12 +226,16 @@ export default function AdminPosts() {
                 <div className="flex items-start gap-3">
                   <div>
                     <div className="text-lg font-semibold">
-                      <Link to={`/post/${post.slug}`} className="hover:underline">
+                      <Link
+                        to={`/post/${post.slug}`}
+                        className="hover:underline"
+                      >
                         {post.title || "Sem título"}
                       </Link>
                     </div>
                     <div className="text-sm text-gray-500 mt-1">
-                      {post.lead || (post.content ? post.content.slice(0, 160) + "…" : "")}
+                      {post.lead ||
+                        (post.content ? post.content.slice(0, 160) + "…" : "")}
                     </div>
                     <div className="mt-2 text-xs text-gray-500">
                       <span>Autor: {post.author_name || "Desconhecido"}</span>
@@ -234,14 +249,16 @@ export default function AdminPosts() {
               <div className="shrink-0 flex items-center gap-4">
                 <div
                   className={`px-2 py-1 border rounded text-sm ${
-                    STATUS_COLORS[post.status] || STATUS_COLORS.draft
+                    STATUS_COLOR[post.status] || STATUS_COLOR.draft
                   }`}
                 >
-                  {post.status || "rascunho"}
+                  {STATUS_LABEL[post.status] || post.status}
                 </div>
 
                 <div className="text-xs text-gray-500 text-right">
-                  {post.published_at ? formatDate(post.published_at) : "Não publicado"}
+                  {post.published_at
+                    ? formatDate(post.published_at)
+                    : "Não publicado"}
                 </div>
 
                 <div className="flex items-center gap-2">
@@ -269,7 +286,8 @@ export default function AdminPosts() {
       {/* rodapé de paginação */}
       <div className="mt-6 flex items-center justify-between">
         <div className="text-sm text-gray-600">
-          Mostrando {Math.min((page - 1) * pageSize + 1, total)}–{Math.min(page * pageSize, total)} de {total}
+          Mostrando {Math.min((page - 1) * pageSize + 1, total)}–
+          {Math.min(page * pageSize, total)} de {total}
         </div>
         <div className="flex items-center gap-2">
           <button

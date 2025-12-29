@@ -81,44 +81,81 @@ function isDuplicateError(err) {
 
 exports.create = async (req, res) => {
   try {
+    // Desestrutura do body — public_at pode ser undefined/null/ISO
     const {
       title,
       slug,
-      content,
+      lead = null,
+      content = '',
       categoryId = null,
-      status = "draft",
+      status = "draft",      // status solicitado pelo frontend
       featuredUrl = null,
+      published_at           // opcional: ISO string ou null
     } = req.body;
 
+    // Validações
     if (!validateTitle(title)) {
       return res.status(400).json({ message: "Invalid title (3–255 chars)" });
     }
-
     const cleanSlug = makeSlug(slug);
-    if (!cleanSlug) {
-      return res.status(400).json({ message: "Invalid slug" });
+    if (!cleanSlug) return res.status(400).json({ message: "Invalid slug" });
+
+    // 1) Resolver publishedValue (null ou Date object)
+    let publishedValue = null;
+    if (published_at !== undefined) {
+      publishedValue = published_at ? new Date(published_at) : null;
+    } else if (status === 'published') {
+      // se frontend pediu publicar e não enviou published_at, publicar agora
+      publishedValue = new Date();
+    } else {
+      publishedValue = null;
     }
 
-    const isPublished = status === "published";
+    // 2) Decidir status final a gravar:
+    //    - se publishedValue é uma data no futuro -> forçar 'pending' (agendado)
+    //    - senão, usar status pedido (accept only allowed values).
+    let statusToSave = status;
+    const allowed = ['draft','published','pending'];
+    if (!allowed.includes(statusToSave)) statusToSave = 'draft';
 
+    if (publishedValue instanceof Date) {
+      const now = new Date();
+      if (publishedValue.getTime() > now.getTime()) {
+        // publicação no futuro => marca como pending (agendado)
+        statusToSave = 'pending';
+      } else {
+        // publicação já passou/é agora => se pediram outra coisa respeitamos (ou 'published')
+        if (statusToSave === 'pending') {
+          // se explicitamente pediram pending mas data já passou, promovemos a published
+          statusToSave = 'published';
+        }
+      }
+    } else {
+      // publishedValue === null -> se pediram 'published' mas null, backend já definiu NOW() acima
+      // (mas aqui publishedValue null só quando status !== published e não veio published_at)
+    }
+
+    // 3) INSERT com ordem correta
     const [result] = await pool.execute(
-      `INSERT INTO posts (title, slug, content, featured_url, status, category_id, author_id, published_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO posts
+        (title, slug, lead, content, featured_url, status, category_id, author_id, published_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         title.trim(),
         cleanSlug,
+        lead,
         content || "",
         featuredUrl,
-        status,
+        statusToSave,         // <- status final decidido
         categoryId,
         req.user.id,
-        isPublished ? new Date() : null,
+        publishedValue        // Date object ou null
       ]
     );
 
-    return res.status(201).json({ id: result.insertId });
+    return res.status(201).json({ id: result.insertId, status: statusToSave });
   } catch (err) {
-    if (isDuplicateError(err)) {
+    if (err && err.code === "ER_DUP_ENTRY") {
       return res.status(409).json({ message: "Slug already in use" });
     }
     console.error("create post error", err);
@@ -137,91 +174,121 @@ exports.update = async (req, res) => {
     const postId = Number(req.params.id);
     if (!postId) return res.status(400).json({ message: "Invalid post id" });
 
-    // 0) Ler o body primeiro (precisamos do `status` para decidir publish)
+    // 0) Ler o body (inclui published_at opcional)
     const {
       title,
       slug,
+      lead,
       content,
       categoryId = null,
-      status, // may be undefined
+      status,              // pode ser undefined
       featuredUrl = null,
+      published_at         // opcional: ISO or null
     } = req.body;
 
-    // 1) Garantir que o post existe — evita atualizar algo inexistente
+    // 1) Garantir que o post existe
     const [existingRows] = await pool.execute(
       "SELECT id, status, published_at, slug FROM posts WHERE id = ? LIMIT 1",
       [postId]
     );
-    if (!existingRows.length)
-      return res.status(404).json({ message: "Post not found" });
+    if (!existingRows.length) return res.status(404).json({ message: "Post not found" });
 
     const currentPost = existingRows[0];
 
-    // 2) Detectar transição draft -> published
-    const isPublishingNow =
-      currentPost.status !== "published" && status === "published";
+    // 2) Interpretar published_at vindo do frontend
+    let newPublishedValue;
+    if (published_at !== undefined) {
+      // frontend explicitamente enviou algo (pode ser null)
+      newPublishedValue = published_at ? new Date(published_at) : null;
+    } else {
+      // frontend não enviou published_at -> mantemos o existente (não mudamos)
+      newPublishedValue = currentPost.published_at ? new Date(currentPost.published_at) : null;
+    }
 
-    // 3) Validações mínimas e preparação dos campos
+    // 3) Decidir status final:
+    //    - se newPublishedValue é futuro -> pending
+    //    - senão, se frontend enviou status usamos (valida), caso contrário mantemos o atual
+    const allowed = ['draft','published','pending'];
+    let statusToSave = currentPost.status; // default: manter o atual
+
+    if (newPublishedValue instanceof Date) {
+      const now = new Date();
+      if (newPublishedValue.getTime() > now.getTime()) {
+        // agendado para o futuro -> pending
+        statusToSave = 'pending';
+      } else {
+        // data no passado/atual -> se frontend pediu 'published' ou 'pending', validamos/respeitamos
+        if (status !== undefined && allowed.includes(status)) {
+          statusToSave = status;
+          // se frontend pediu 'pending' mas data já passou, promovemos a 'published'
+          if (statusToSave === 'pending' && newPublishedValue.getTime() <= Date.now()) {
+            statusToSave = 'published';
+          }
+        } else {
+          // se frontend não pediu, e current era 'pending' mas date já passou -> promover a published
+          if (currentPost.status === 'pending' && newPublishedValue.getTime() <= Date.now()) {
+            statusToSave = 'published';
+          }
+        }
+      }
+    } else {
+      // newPublishedValue === null -> se frontend pediu 'published', então status='published'
+      if (status !== undefined && allowed.includes(status)) {
+        statusToSave = status;
+      }
+      // se não veio status nem published_at mantemos status atual
+    }
+
+    // 4) Preparar fields dinâmicos (inclui lead e published_at)
     const fields = [];
     const values = [];
 
     if (title !== undefined) {
-      if (!validateTitle(title)) {
-        return res
-          .status(400)
-          .json({ message: "Invalid title (must be 3-255 chars)" });
-      }
-      fields.push("title = ?");
-      values.push(title.trim());
+      if (!validateTitle(title)) return res.status(400).json({ message: "Invalid title" });
+      fields.push("title = ?"); values.push(title.trim());
     }
-
     if (slug !== undefined) {
       const clean = makeSlug(slug);
       if (!clean) return res.status(400).json({ message: "Invalid slug" });
-      fields.push("slug = ?");
-      values.push(clean);
+      fields.push("slug = ?"); values.push(clean);
     }
+    if (lead !== undefined) { fields.push("lead = ?"); values.push(lead); }
+    if (content !== undefined) { fields.push("content = ?"); values.push(content); }
+    if (featuredUrl !== undefined) { fields.push("featured_url = ?"); values.push(featuredUrl); }
+    if (categoryId !== undefined) { fields.push("category_id = ?"); values.push(categoryId); }
 
-    if (content !== undefined) {
-      fields.push("content = ?");
-      values.push(content);
-    }
-
-    if (featuredUrl !== undefined) {
-      fields.push("featured_url = ?");
-      values.push(featuredUrl);
-    }
-
-    if (categoryId !== undefined) {
-      fields.push("category_id = ?");
-      values.push(categoryId);
-    }
-
-    if (status !== undefined) {
-      if (!["draft", "published"].includes(status)) {
-        return res
-          .status(400)
-          .json({ message: "Invalid status; allowed: 'draft' or 'published'" });
-      }
+    // sempre setamos o statusToSave (pode ser igual ao atual, mas isto garante coerência)
+    if (statusToSave !== undefined) {
       fields.push("status = ?");
-      values.push(status);
+      values.push(statusToSave);
     }
 
-    if (isPublishingNow) {
-      // published_at is set by DB function NOW() — it is not a parameterized value
-      fields.push("published_at = NOW()");
+    // published_at — se frontend enviou (published_at !== undefined) usamos explicitamente,
+    // caso contrário, se houve mudança por lógica (ex: promoção pending->published) devemos gravar o date atual ou manter existente.
+    if (published_at !== undefined) {
+      // frontend quis alterar (pode ser null)
+      fields.push("published_at = ?");
+      values.push(newPublishedValue);
+    } else {
+      // frontend não enviou published_at: mas se statusToSave moved from pending->published and published_at was null,
+      // podemos setar published_at = NOW() (decisão opcional). Vamos só lidar com case where
+      if (currentPost.status === 'pending' && statusToSave === 'published' && !currentPost.published_at) {
+        // caso raro: promover pending sem data -> definimos agora
+        fields.push("published_at = ?");
+        values.push(new Date());
+      }
+      // caso contrário mantemos published_at como estava (não adicionamos campo)
     }
 
-    if (fields.length === 0)
-      return res.status(400).json({ message: "No fields to update" });
+    if (fields.length === 0) return res.status(400).json({ message: "No fields to update" });
 
-    // 4) Montar SQL e executar (values order must match the placeholders)
+    // 5) Montar SQL e executar
     const sql = `UPDATE posts SET ${fields.join(", ")} WHERE id = ?`;
-    values.push(postId); // id param for WHERE
+    values.push(postId);
 
     try {
       await pool.execute(sql, values);
-      return res.json({ ok: true });
+      return res.json({ ok: true, status: statusToSave });
     } catch (err) {
       if (err && err.code === "ER_DUP_ENTRY") {
         return res.status(409).json({ message: "Slug already in use" });
