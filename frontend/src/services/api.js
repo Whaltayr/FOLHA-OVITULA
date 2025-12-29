@@ -2,6 +2,34 @@
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
+
+
+  function getAuthHeaders() {
+    const token = localStorage.getItem('token');
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  }
+
+export async function uploadFile(file) {
+  const url = `${API}/uploads`; // POST /uploads
+  const fd = new FormData();
+  fd.append('file', file); // campo 'file' corresponde ao multer.single('file')
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      // NOTA: não definir Content-Type — o browser define boundary para multipart
+      ...getAuthHeaders()
+    },
+    body: fd,
+    credentials: 'include' // se estiveres usando cookies para auth (opcional)
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || 'Erro no upload');
+  }
+  return res.json(); // { ok: true, url: '/uploads/...' }
+}
 /**
  * Base fetch com timeout + erro padronizado
  */
@@ -34,10 +62,6 @@ async function fetchWithTimeout(url, options = {}, timeout = 8000) {
 /**
  * Lê o token salvo pelo AuthContext
  */
-function getAuthHeaders() {
-  const token = localStorage.getItem('token');
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
 
 /* =====================================================
    POSTS — PÚBLICO

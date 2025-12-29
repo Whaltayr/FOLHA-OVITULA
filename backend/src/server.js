@@ -4,16 +4,13 @@ const express = require('express');
 const cors = require('cors');
 const cookieParser = require('cookie-parser'); // opcional, facilita cookies
 const app = express();
+const path = require('path');
+
+
+
 
 app.use(express.json());
 
-// CORS - configure explicitamente para o dev frontend
-// app.use(cors({
-//   origin: 'http://localhost:5173', // endereço do Vite
-//   methods: ['GET','POST','PUT','DELETE','OPTIONS'],
-//   allowedHeaders: ['Content-Type', 'Authorization'],
-//   credentials: true, // se usar cookies HttpOnly; senão pode false
-// }));
 
 // Se quiser garantir preflight responses:
 app.use( cors({
@@ -23,6 +20,10 @@ app.use( cors({
 
 //Cookies
 app.use(cookieParser()); // se quiser ler cookies via req.cookies
+
+// 2) servir estático de uploads e montar rota de upload (router usa multer para POST)
+app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
+app.use('/uploads', require('./routes/uploads'));
 
 
 // rotas
