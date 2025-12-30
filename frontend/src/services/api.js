@@ -37,7 +37,13 @@ function getAuthHeaders() {
 /** GET /categories */
 export async function getCategories() {
   const url = `${API}/categories`;
-  return fetchWithTimeout(url, { method: 'GET' });
+  // reusa fetchWithTimeout se você definiu; se não, faça um fetch simples:
+  const res = await fetch(url);
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || 'Failed to load categories');
+  }
+  return res.json();
 }
 
 /** GET /posts?page=&pageSize=&category=slug */

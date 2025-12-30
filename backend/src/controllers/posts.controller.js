@@ -14,14 +14,14 @@ function isDuplicateError(err) {
  * GET /posts?page=&pageSize=&category=<category_slug>
  */
 // ===== listPublic =====
+
 exports.listPublic = async (req, res) => {
   try {
     const page = Math.max(1, Number(req.query.page) || 1);
     const pageSize = Math.min(50, Number(req.query.pageSize) || 10);
     const offset = (page - 1) * pageSize;
-    const categoryFilter = req.query.category || null;
 
-    // promove posts pending cuja hora já passou (garantia extra)
+    // 1) Promoção silenciosa: pending → published
     await pool.execute(
       `UPDATE posts
        SET status = 'published', updated_at = NOW()
@@ -30,32 +30,48 @@ exports.listPublic = async (req, res) => {
          AND published_at <= NOW()`
     );
 
-    // inclui author_name via LEFT JOIN users u
-    let sql = `
-      SELECT p.id, p.title, p.slug, p.lead, p.featured_url, p.published_at,
-             u.name AS author_name, c.name AS category, c.slug AS category_slug
-      FROM posts p
-      LEFT JOIN users u ON p.author_id = u.id
-      LEFT JOIN categories c ON p.category_id = c.id
-      WHERE p.status = 'published' AND p.published_at IS NOT NULL AND p.published_at <= NOW()
-    `;
-    const params = [];
+    // 2) Seleção com LEFT JOIN em categories e users (autores)
+    const [rows] = await pool.execute(
+      `SELECT p.id, p.title, p.slug, p.lead, p.featured_url, p.published_at,
+              c.id AS category_id, c.name AS category_name, c.slug AS category_slug,
+              u.id AS author_id, u.name AS author_name
+       FROM posts p
+       LEFT JOIN categories c ON p.category_id = c.id
+       LEFT JOIN users u ON p.author_id = u.id
+       WHERE p.status = 'published'
+         AND p.published_at IS NOT NULL
+         AND p.published_at <= NOW()
+       ORDER BY p.published_at DESC
+       LIMIT ? OFFSET ?`,
+      [pageSize, offset]
+    );
 
-    if (categoryFilter) {
-      sql += ' AND c.slug = ?';
-      params.push(categoryFilter);
-    }
+    // 3) Mapear rows para objeto simples para frontend
+    const mapped = rows.map(r => ({
+      id: r.id,
+      title: r.title,
+      slug: r.slug,
+      lead: r.lead,
+      featured_url: r.featured_url ? String(r.featured_url) : null,
+      published_at: r.published_at,
+      category: r.category_id ? {
+        id: r.category_id,
+        name: r.category_name,
+        slug: r.category_slug
+      } : null,
+      author: r.author_id ? {
+        id: r.author_id,
+        name: r.author_name
+      } : { id: null, name: "Desconhecido" }
+    }));
 
-    sql += ' ORDER BY p.published_at DESC LIMIT ? OFFSET ?';
-    params.push(pageSize, offset);
-
-    const [rows] = await pool.execute(sql, params);
-    return res.json({ page, pageSize, data: rows });
+    return res.json({ page, pageSize, data: mapped });
   } catch (err) {
-    console.error('listPublic error', err);
-    return res.status(500).json({ message: 'Internal server error' });
+    console.error("listPublic error", err);
+    return res.status(500).json({ message: "Internal server error" });
   }
 };
+
 
 
 /**

@@ -1,109 +1,154 @@
 // frontend/src/pages/Home.jsx
-import { useEffect, useState } from 'react';
-import { getPosts, getCategories } from '../services/api';
-import { Link } from 'react-router-dom';
+import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
+import { getPosts, getCategories } from "../services/api";
 
-const API = import.meta.env.VITE_API_URL || 'http://localhost:3001'; // base da API
+/*
+  Home (cards minimalistas):
+  - mostra apenas: imagem de destaque, título, excerpt (lead) e categoria.
+  - remove slug e autor da listagem; autor fica só no PostDetail.
+  - trata featured_url que pode ser URL absoluta ou caminho relativo (uploads).
+  - fallback seguro para evitar loop infinito no onError.
+*/
 
-function PostCard({ p }) {
-  // Se featured_url for relativa (ex: "/uploads/abc.jpg") prefixamos com a API
-  const src = p.featured_url && (p.featured_url.startsWith('http') ? p.featured_url : `${API}${p.featured_url}`);
-  const fallback = '/fallback-image.png'; // ficheiro na pasta public do frontend
-
-  return (
-    <article className="bg-white rounded-lg shadow-sm overflow-hidden">
-      <Link to={`/post/${p.slug}`} className="block">
-        <div className="h-44 md:h-56 w-full overflow-hidden bg-gray-100">
-          <img
-            src={src || fallback}
-            alt={p.title}
-            className="w-full h-full object-cover transition-transform transform hover:scale-105"
-            loading="lazy"
-            // onError: evita loop definindo um flag data-fallback-set
-            onError={(e) => {
-              const img = e.currentTarget;
-              if (!img.dataset.fallbackSet) {
-                img.dataset.fallbackSet = '1';
-                img.src = fallback;
-              }
-            }}
-          />
-        </div>
-
-        <div className="p-4">
-          <div className="text-xs text-gray-500 mb-1">
-            {p.category || 'Sem categoria'} • {p.slug}
-          </div>
-          <h2 className="text-lg font-semibold leading-tight">{p.title}</h2>
-          <p className="text-sm text-gray-600 mt-2">
-            {p.lead || (p.content ? (p.content.replace(/<\/?[^>]+(>|$)/g, "").slice(0, 140) + '…') : '')}
-          </p>
-        </div>
-      </Link>
-    </article>
-  );
+// monta URL completa da imagem: aceita caminho relativo ("/uploads/xxx") ou nome
+function resolveImageUrl(path) {
+  if (!path) return "/fallback-image.png"; // sem imagem → fallback local
+  // se já for uma URL absoluta, usa diretamente
+  if (path.startsWith("http://") || path.startsWith("https://")) return path;
+  // caso contrário monta com a base da API (ex.: "/uploads/xxx" ou "uploads/xxx")
+  const base = import.meta.env.VITE_API_URL || "http://localhost:3001";
+  // garante barra entre base e path
+  return `${base.replace(/\/$/, "")}/${path.replace(/^\//, "")}`;
 }
 
 export default function Home() {
   const [posts, setPosts] = useState([]);
-  const [meta, setMeta] = useState({ page: 1, pageSize: 9 });
+  const [categories, setCategories] = useState([]);
+  const [categoryFilter, setCategoryFilter] = useState("all");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const [categories, setCategories] = useState([]);
-  const [category, setCategory] = useState('');
+  // paginação simples (pode expandir depois)
+  const [page] = useState(1);
+  const [pageSize] = useState(12);
 
   useEffect(() => {
     let mounted = true;
-    setLoading(true);
-    setError(null);
+    async function loadAll() {
+      try {
+        setLoading(true);
+        setError(null);
 
-    getCategories()
-      .then(arr => { if (!mounted) return; setCategories(Array.isArray(arr) ? arr : []); })
-      .catch(() => { /* falha nas categorias não bloqueia a home */ });
+        // buscar posts + categorias em paralelo para performance
+        const [postsResp, catsResp] = await Promise.all([
+          getPosts(page, pageSize),    // espera { page, pageSize, data: [...] }
+          getCategories(),             // espera [ { id, name, slug } ]
+        ]);
 
-    getPosts(meta.page, meta.pageSize, category || null)
-      .then(json => { if (!mounted) return; setPosts(json.data || []); })
-      .catch(err => { if (!mounted) return; setError(err.message || 'Falha ao carregar posts'); })
-      .finally(() => { if (!mounted) return; setLoading(false); });
+        if (!mounted) return;
 
-    return () => { mounted = false; };
-  }, [meta.page, meta.pageSize, category]);
+        const items = postsResp?.data ?? postsResp?.posts ?? postsResp ?? [];
+        setPosts(Array.isArray(items) ? items : []);
+        setCategories(Array.isArray(catsResp) ? catsResp : []);
+      } catch (err) {
+        if (!mounted) return;
+        console.error("Home load error", err);
+        setError(err.message || "Falha ao carregar conteúdo");
+      } finally {
+        if (!mounted) return;
+        setLoading(false);
+      }
+    }
+    loadAll();
+    return () => {
+      mounted = false;
+    };
+  }, [page, pageSize]);
 
-  if (loading) return <div className="p-6">Carregando posts…</div>;
-  if (error) return <div className="p-6 text-red-600">Erro: {error}</div>;
+  // filtrar por categoria
+  const filtered = useMemo(() => {
+    if (categoryFilter === "all") return posts;
+    return posts.filter((p) => (p.category?.slug ?? "") === categoryFilter);
+  }, [posts, categoryFilter]);
+
+  if (loading) return <div className="p-6 text-center">Carregando…</div>;
+  if (error) return <div className="p-6 text-center text-red-600">Erro: {error}</div>;
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-8">
-      <div className="flex items-center justify-between mb-6 gap-4">
-        <h1 className="text-2xl font-bold">Folha Ovitula</h1>
-        <div className="flex items-center gap-3">
-          <select
-            value={category}
-            onChange={(e) => { setCategory(e.target.value); setMeta(m => ({ ...m, page: 1 })); }}
-            className="px-3 py-2 border rounded bg-white"
+    <div className="max-w-6xl mx-auto p-6">
+      {/* filtros de categoria */}
+      <div className="flex flex-wrap gap-2 mb-6">
+        <button
+          className={`px-3 py-1 rounded ${categoryFilter === "all" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-700"}`}
+          onClick={() => setCategoryFilter("all")}
+        >
+          Todas
+        </button>
+
+        {categories.map((cat) => (
+          <button
+            key={cat.id}
+            className={`px-3 py-1 rounded ${categoryFilter === cat.slug ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-700"}`}
+            onClick={() => setCategoryFilter(cat.slug)}
+            title={cat.name}
           >
-            <option value="">Todas as categorias</option>
-            {categories.map(c => <option key={c.id} value={c.slug}>{c.name}</option>)}
-          </select>
-        </div>
+            {cat.name}
+          </button>
+        ))}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6">
-          {posts.map(p => <PostCard key={p.id} p={p} />)}
-        </div>
+      {/* grid de cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
+        {filtered.length === 0 ? (
+          <div className="col-span-full text-center text-gray-600">Nenhum artigo encontrado.</div>
+        ) : (
+          filtered.map((post) => {
+            const imgUrl = resolveImageUrl(post.featured_url || "");
+            return (
+              <Link
+                to={`/post/${post.slug}`}
+                key={post.id}
+                className="bg-white rounded-lg shadow hover:shadow-lg overflow-hidden flex flex-col"
+                aria-label={post.title || "Artigo"}
+              >
+                <div className="h-48 bg-gray-100 overflow-hidden">
+                  {post.featured_url ? (
+                    <img
+                      src={imgUrl}
+                      alt={post.title}
+                      className="w-full h-full object-cover"
+                      loading="lazy"
+                      // onError: troca para fallback e remove handler para evitar loop
+                      onError={(e) => {
+                        e.currentTarget.onerror = null;
+                        e.currentTarget.src = "/fallback-image.png";
+                      }}
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-gray-400">
+                      Sem imagem
+                    </div>
+                  )}
+                </div>
 
-        <aside className="bg-white p-4 rounded-lg shadow-sm border">
-          <h3 className="font-semibold mb-3">Mais lidos</h3>
-          <div className="text-sm text-gray-600">Espaço para destaques, tags, ou listagem manual.</div>
-        </aside>
-      </div>
+                <div className="p-4 flex flex-col flex-1">
+                  <div className="flex items-center justify-between gap-3 mb-2">
+                    <h2 className="font-semibold text-lg">{post.title || "Sem título"}</h2>
+                    {post.category?.name && (
+                      <div className="text-xs px-2 py-1 bg-gray-100 rounded text-gray-600">{post.category.name}</div>
+                    )}
+                  </div>
 
-      <div className="flex items-center justify-between mt-8">
-        <button className="px-4 py-2 border rounded" disabled={meta.page <= 1} onClick={() => setMeta(m => ({ ...m, page: m.page - 1 }))}>← Anterior</button>
-        <div className="text-sm text-gray-600">Página {meta.page}</div>
-        <button className="px-4 py-2 border rounded" onClick={() => setMeta(m => ({ ...m, page: m.page + 1 }))}>Seguinte →</button>
+                  {/* removido: slug e autor — exibimos só o excerpt */}
+                  <p className="text-sm text-gray-700 flex-1">
+                    {post.lead ?? (post.content ? (post.content.slice(0, 140) + "…") : "")}
+                  </p>
+                </div>
+              </Link>
+            );
+          })
+        )}
       </div>
     </div>
   );
