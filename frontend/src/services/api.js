@@ -1,157 +1,107 @@
 // frontend/src/services/api.js
-
 const API = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
-
-
-  function getAuthHeaders() {
-    const token = localStorage.getItem('token');
-    return token ? { Authorization: `Bearer ${token}` } : {};
-  }
-
-export async function uploadFile(file) {
-  const url = `${API}/uploads`; // POST /uploads
-  const fd = new FormData();
-  fd.append('file', file); // campo 'file' corresponde ao multer.single('file')
-
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      // NOTA: não definir Content-Type — o browser define boundary para multipart
-      ...getAuthHeaders()
-    },
-    body: fd,
-    credentials: 'include' // se estiveres usando cookies para auth (opcional)
-  });
-
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(text || 'Erro no upload');
-  }
-  return res.json(); // { ok: true, url: '/uploads/...' }
-}
 /**
- * Base fetch com timeout + erro padronizado
+ * Base fetch com timeout e tratamento uniforme de erros.
  */
-async function fetchWithTimeout(url, options = {}, timeout = 8000) {
+async function fetchWithTimeout(url, options = {}, timeout = 10000) {
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeout);
 
   try {
-    const res = await fetch(url, {
-      ...options,
-      signal: controller.signal
-    });
-
+    const res = await fetch(url, { ...options, signal: controller.signal });
     clearTimeout(id);
-
     if (!res.ok) {
       const text = await res.text();
-      throw new Error(`HTTP ${res.status} ${res.statusText} - ${text}`);
+      throw new Error(text || `HTTP ${res.status}`);
     }
-
     return res.json();
   } catch (err) {
-    if (err.name === 'AbortError') {
-      throw new Error('Request timed out');
-    }
+    if (err.name === 'AbortError') throw new Error('Request timed out');
     throw err;
   }
 }
 
 /**
- * Lê o token salvo pelo AuthContext
+ * Lê token do localStorage (AuthContext deve gravar token lá)
  */
-
-/* =====================================================
-   POSTS — PÚBLICO
-===================================================== */
-
-/**
- * Lista posts públicos (Home)
- * GET /posts
- */
-export async function getPosts(page = 1, pageSize = 10) {
-  const url = `${API}/posts?page=${page}&pageSize=${pageSize}`;
-  return fetchWithTimeout(url, {
-    method: 'GET'
-  });
+function getAuthHeaders() {
+  const token = (() => {
+    try { return localStorage.getItem('token'); } catch { return null; }
+  })();
+  return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
-/**
- * Post público por slug
- * GET /posts/view/:slug
- */
+/* --------------------- PUBLIC --------------------- */
+
+/** GET /categories */
+export async function getCategories() {
+  const url = `${API}/categories`;
+  return fetchWithTimeout(url, { method: 'GET' });
+}
+
+/** GET /posts?page=&pageSize=&category=slug */
+export async function getPosts(page = 1, pageSize = 10, categorySlug = null) {
+  const params = new URLSearchParams({ page, pageSize });
+  if (categorySlug) params.set('category', categorySlug);
+  const url = `${API}/posts?${params.toString()}`;
+  return fetchWithTimeout(url, { method: 'GET' });
+}
+
+/** GET /posts/view/:slug */
 export async function getPostBySlug(slug) {
   const url = `${API}/posts/view/${encodeURIComponent(slug)}`;
-  return fetchWithTimeout(url, {
-    method: 'GET',
-    headers: {
-      ...getAuthHeaders() // opcional → permite admin ver draft
-    }
-  });
+  return fetchWithTimeout(url, { method: 'GET', headers: { ...getAuthHeaders() } });
 }
 
-/* =====================================================
-   POSTS — ADMIN
-===================================================== */
+/* --------------------- ADMIN --------------------- */
 
-/**
- * Lista posts no painel admin
- * GET /posts/admin
- */
+/** GET /posts/admin */
 export async function getAdminPosts() {
   const url = `${API}/posts/admin`;
-  return fetchWithTimeout(url, {
-    method: 'GET',
-    headers: {
-      ...getAuthHeaders()
-    }
-  });
+  return fetchWithTimeout(url, { method: 'GET', headers: { ...getAuthHeaders() } });
 }
 
-/**
- * Cria post (ADMIN)
- * POST /posts/admin
- */
+/** POST /posts/admin */
 export async function createPost(data) {
   const url = `${API}/posts/admin`;
   return fetchWithTimeout(url, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...getAuthHeaders()
-    },
+    headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
     body: JSON.stringify(data)
   });
 }
 
-/**
- * Atualiza post (ADMIN)
- * PUT /posts/admin/:id
- */
+/** PUT /posts/admin/:id */
 export async function updatePost(id, data) {
   const url = `${API}/posts/admin/${id}`;
   return fetchWithTimeout(url, {
     method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json',
-      ...getAuthHeaders()
-    },
+    headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
     body: JSON.stringify(data)
   });
 }
 
-/**
- * Remove post (ADMIN)
- * DELETE /posts/admin/:id
- */
+/** DELETE /posts/admin/:id */
 export async function deletePost(id) {
   const url = `${API}/posts/admin/${id}`;
-  return fetchWithTimeout(url, {
-    method: 'DELETE',
-    headers: {
-      ...getAuthHeaders()
-    }
+  return fetchWithTimeout(url, { method: 'DELETE', headers: { ...getAuthHeaders() } });
+}
+
+/** POST /uploads (multipart) -> returns { ok:true, url } */
+export async function uploadFile(file) {
+  const url = `${API}/uploads`;
+  const fd = new FormData();
+  fd.append('file', file);
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { ...getAuthHeaders() }, // do not set Content-Type for FormData
+    body: fd
   });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(text || 'Upload failed');
+  }
+  return res.json();
 }

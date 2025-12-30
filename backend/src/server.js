@@ -1,48 +1,41 @@
-// src/server.js
+// backend/src/server.js
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const cookieParser = require('cookie-parser'); // opcional, facilita cookies
-const app = express();
+const cookieParser = require('cookie-parser');
 const path = require('path');
 
+const app = express();
 
-
-
+// parse JSON bodies
 app.use(express.json());
 
-
-// Se quiser garantir preflight responses:
-app.use( cors({
-  origin: 'http://localhost:5173',
+// CORS: permite o frontend local (Vite) acessar a API
+app.use(cors({
+  origin: process.env.FRONTEND_ORIGIN || 'http://localhost:5173',
   credentials: true
 }));
 
-//Cookies
-app.use(cookieParser()); // se quiser ler cookies via req.cookies
+// cookies parsing (opcional — usamos tokens no header)
+app.use(cookieParser());
 
-// 2) servir estático de uploads e montar rota de upload (router usa multer para POST)
+// serve arquivos de uploads (pasta project/uploads)
 app.use('/uploads', express.static(path.join(__dirname, '..', 'uploads')));
-app.use('/uploads', require('./routes/uploads'));
 
+// rotas - certifique-se que os ficheiros existem em src/routes
+app.use('/auth', require('./routes/auth'));       // login
+app.use('/posts', require('./routes/posts'));     // posts públicos + admin
+app.use('/admin', require('./routes/admin'));     // admin endpoints (me)
+app.use('/categories', require('./routes/categories')); // nova rota categories
+app.use('/uploads', require('./routes/uploads')); // rota POST /uploads (multer)
 
-// rotas
-app.use('/auth', require('./routes/auth'));    // já tens
-app.use('/admin', require('./routes/admin'));  // proteger
-app.use('/posts', require('./routes/posts'));  // public + admin
-
-// em src/server.js (ou app.js) — na área de rotas
-app.use('/admin/maintenance', require('./routes/maintenance'));
-
-
-
+// start server
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => console.log(`🚀 Backend listening on ${PORT}`));
 
+// === promoção periódica de posts agendados (pending -> published) ===
+const pool = require('./config/db'); // pool mysql2
 
-const pool = require('./config/db'); // garante que existe no topo do ficheiro
-
-// Função que promove scheduled posts (reutiliza mesma lógica do endpoint)
 async function promoteScheduledJob() {
   try {
     const [result] = await pool.execute(
@@ -61,14 +54,8 @@ async function promoteScheduledJob() {
   }
 }
 
-// roda a cada minuto (60 * 1000 ms)
-// NOTA: para produção considera usar node-cron ou um worker separado.
+// roda a cada minuto; para produção usar cron/worker separado
 const INTERVAL_MS = 60 * 1000;
 setInterval(promoteScheduledJob, INTERVAL_MS);
-// opcional: rodar imediatamente ao iniciar
+// roda uma vez na inicialização
 promoteScheduledJob();
-
-
-
-
-

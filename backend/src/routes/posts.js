@@ -1,12 +1,12 @@
+// backend/src/routes/posts.js
 const express = require('express');
 const router = express.Router();
 const postsCtrl = require('../controllers/posts.controller');
 const verifyJWT = require('../middleware/verifyJWT');
 const requireRole = require('../middleware/requireRole');
 
-
 // Public endpoints
-router.get('/', postsCtrl.listPublic);              // GET /posts
+router.get('/', postsCtrl.listPublic);              // GET /posts?page=1&pageSize=10&category=slug
 router.get('/view/:slug', postsCtrl.getBySlug);     // GET /posts/view/:slug
 
 // Admin endpoints (protected)
