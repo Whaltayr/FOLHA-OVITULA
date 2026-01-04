@@ -1,16 +1,11 @@
+import Header from "../components/Header";
+
 export default function MainLayout({ children }) {
   return (
     <div className="min-h-screen bg-gray-100 text-gray-900">
       
       {/* Header */}
-      <header className="bg-white border-b">
-        <div className="max-w-6xl mx-auto px-4 py-4 flex justify-between">
-          <h1 className="text-xl font-bold">Folha Ovitula</h1>
-          <nav className="text-sm text-gray-600">
-            Notícias · Política · Economia
-          </nav>
-        </div>
-      </header>
+      <Header/>
 
       {/* Conteúdo */}
       <main className="max-w-6xl mx-auto px-4 py-8">

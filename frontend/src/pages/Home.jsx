@@ -1,31 +1,28 @@
-// frontend/src/pages/Home.jsx
 import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
-import { getPosts, getCategories } from "../services/api";
+import { Link, useLocation } from "react-router-dom";
+import { getPosts } from "../services/api";
 
 /*
   Home (cards minimalistas):
-  - mostra apenas: imagem de destaque, título, excerpt (lead) e categoria.
-  - remove slug e autor da listagem; autor fica só no PostDetail.
-  - trata featured_url que pode ser URL absoluta ou caminho relativo (uploads).
-  - fallback seguro para evitar loop infinito no onError.
+  - NÃO busca categorias (agora o header faz isso)
+  - lê query param ?category=slug e passa para getPosts(page,pageSize,category)
+  - mostra apenas: imagem de destaque, título, excerpt (lead) e badge da categoria
 */
 
 // monta URL completa da imagem: aceita caminho relativo ("/uploads/xxx") ou nome
 function resolveImageUrl(path) {
   if (!path) return "/fallback-image.png"; // sem imagem → fallback local
-  // se já for uma URL absoluta, usa diretamente
   if (path.startsWith("http://") || path.startsWith("https://")) return path;
-  // caso contrário monta com a base da API (ex.: "/uploads/xxx" ou "uploads/xxx")
   const base = import.meta.env.VITE_API_URL || "http://localhost:3001";
-  // garante barra entre base e path
   return `${base.replace(/\/$/, "")}/${path.replace(/^\//, "")}`;
 }
 
 export default function Home() {
+  const loc = useLocation();
+  const params = new URLSearchParams(loc.search);
+  const categoryFromQuery = params.get('category') || null; // lê ?category=slug
+
   const [posts, setPosts] = useState([]);
-  const [categories, setCategories] = useState([]);
-  const [categoryFilter, setCategoryFilter] = useState("all");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -35,22 +32,17 @@ export default function Home() {
 
   useEffect(() => {
     let mounted = true;
-    async function loadAll() {
+    async function load() {
       try {
         setLoading(true);
         setError(null);
 
-        // buscar posts + categorias em paralelo para performance
-        const [postsResp, catsResp] = await Promise.all([
-          getPosts(page, pageSize),    // espera { page, pageSize, data: [...] }
-          getCategories(),             // espera [ { id, name, slug } ]
-        ]);
+        // passa o categorySlug (pode ser null)
+        const postsResp = await getPosts(page, pageSize, categoryFromQuery);
 
         if (!mounted) return;
-
         const items = postsResp?.data ?? postsResp?.posts ?? postsResp ?? [];
         setPosts(Array.isArray(items) ? items : []);
-        setCategories(Array.isArray(catsResp) ? catsResp : []);
       } catch (err) {
         if (!mounted) return;
         console.error("Home load error", err);
@@ -60,44 +52,18 @@ export default function Home() {
         setLoading(false);
       }
     }
-    loadAll();
-    return () => {
-      mounted = false;
-    };
-  }, [page, pageSize]);
+    load();
+    return () => { mounted = false; };
+  }, [page, pageSize, categoryFromQuery]); // re-executa quando a categoria muda
 
-  // filtrar por categoria
-  const filtered = useMemo(() => {
-    if (categoryFilter === "all") return posts;
-    return posts.filter((p) => (p.category?.slug ?? "") === categoryFilter);
-  }, [posts, categoryFilter]);
+  // só para renderização (sem filtro client-side agora)
+  const filtered = useMemo(() => posts, [posts]);
 
   if (loading) return <div className="p-6 text-center">Carregando…</div>;
   if (error) return <div className="p-6 text-center text-red-600">Erro: {error}</div>;
 
   return (
     <div className="max-w-6xl mx-auto p-6">
-      {/* filtros de categoria */}
-      <div className="flex flex-wrap gap-2 mb-6">
-        <button
-          className={`px-3 py-1 rounded ${categoryFilter === "all" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-700"}`}
-          onClick={() => setCategoryFilter("all")}
-        >
-          Todas
-        </button>
-
-        {categories.map((cat) => (
-          <button
-            key={cat.id}
-            className={`px-3 py-1 rounded ${categoryFilter === cat.slug ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-700"}`}
-            onClick={() => setCategoryFilter(cat.slug)}
-            title={cat.name}
-          >
-            {cat.name}
-          </button>
-        ))}
-      </div>
-
       {/* grid de cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
         {filtered.length === 0 ? (
@@ -119,16 +85,14 @@ export default function Home() {
                       alt={post.title}
                       className="w-full h-full object-cover"
                       loading="lazy"
-                      // onError: troca para fallback e remove handler para evitar loop
                       onError={(e) => {
+                        // evitar loop: remover handler logo a seguir e trocar src
                         e.currentTarget.onerror = null;
                         e.currentTarget.src = "/fallback-image.png";
                       }}
                     />
                   ) : (
-                    <div className="w-full h-full flex items-center justify-center text-gray-400">
-                      Sem imagem
-                    </div>
+                    <div className="w-full h-full flex items-center justify-center text-gray-400">Sem imagem</div>
                   )}
                 </div>
 
@@ -140,7 +104,6 @@ export default function Home() {
                     )}
                   </div>
 
-                  {/* removido: slug e autor — exibimos só o excerpt */}
                   <p className="text-sm text-gray-700 flex-1">
                     {post.lead ?? (post.content ? (post.content.slice(0, 140) + "…") : "")}
                   </p>

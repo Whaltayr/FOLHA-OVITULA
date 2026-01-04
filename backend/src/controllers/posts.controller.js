@@ -15,13 +15,17 @@ function isDuplicateError(err) {
  */
 // ===== listPublic =====
 
+// ===== listPublic =====
 exports.listPublic = async (req, res) => {
   try {
     const page = Math.max(1, Number(req.query.page) || 1);
     const pageSize = Math.min(50, Number(req.query.pageSize) || 10);
     const offset = (page - 1) * pageSize;
 
-    // 1) Promoção silenciosa: pending → published
+    // optional category filter (expect a slug)
+    const category = req.query.category ? String(req.query.category).trim() : null;
+
+    // 1) Promoção silenciosa: pending -> published (mantém comportamento atual)
     await pool.execute(
       `UPDATE posts
        SET status = 'published', updated_at = NOW()
@@ -30,21 +34,30 @@ exports.listPublic = async (req, res) => {
          AND published_at <= NOW()`
     );
 
-    // 2) Seleção com LEFT JOIN em categories e users (autores)
-    const [rows] = await pool.execute(
-      `SELECT p.id, p.title, p.slug, p.lead, p.featured_url, p.published_at,
-              c.id AS category_id, c.name AS category_name, c.slug AS category_slug,
-              u.id AS author_id, u.name AS author_name
-       FROM posts p
-       LEFT JOIN categories c ON p.category_id = c.id
-       LEFT JOIN users u ON p.author_id = u.id
-       WHERE p.status = 'published'
-         AND p.published_at IS NOT NULL
-         AND p.published_at <= NOW()
-       ORDER BY p.published_at DESC
-       LIMIT ? OFFSET ?`,
-      [pageSize, offset]
-    );
+    // 2) Build SQL dinamicamente: adiciona filtro por categoria apenas se category for passado
+    let sql = `
+      SELECT p.id, p.title, p.slug, p.lead, p.featured_url, p.published_at,
+             c.id AS category_id, c.name AS category_name, c.slug AS category_slug,
+             u.id AS author_id, u.name AS author_name
+      FROM posts p
+      LEFT JOIN categories c ON p.category_id = c.id
+      LEFT JOIN users u ON p.author_id = u.id
+      WHERE p.status = 'published'
+        AND p.published_at IS NOT NULL
+        AND p.published_at <= NOW()
+    `;
+    const params = [];
+
+    if (category) {
+      // filtro por slug da categoria (seguro, parametrizado)
+      sql += ` AND c.slug = ?`;
+      params.push(category);
+    }
+
+    sql += ` ORDER BY p.published_at DESC LIMIT ? OFFSET ?`;
+    params.push(pageSize, offset);
+
+    const [rows] = await pool.execute(sql, params);
 
     // 3) Mapear rows para objeto simples para frontend
     const mapped = rows.map(r => ({
