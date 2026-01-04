@@ -16,16 +16,18 @@ function isDuplicateError(err) {
 // ===== listPublic =====
 
 // ===== listPublic =====
+// ===== listPublic =====
 exports.listPublic = async (req, res) => {
   try {
     const page = Math.max(1, Number(req.query.page) || 1);
     const pageSize = Math.min(50, Number(req.query.pageSize) || 10);
     const offset = (page - 1) * pageSize;
 
-    // optional category filter (expect a slug)
+    // query params opcionais
     const category = req.query.category ? String(req.query.category).trim() : null;
+    const q = req.query.q ? String(req.query.q).trim() : null; // termo de busca
 
-    // 1) Promoção silenciosa: pending -> published (mantém comportamento atual)
+    // 1) Promoção silenciosa: pending -> published (mantém comportamento)
     await pool.execute(
       `UPDATE posts
        SET status = 'published', updated_at = NOW()
@@ -34,7 +36,7 @@ exports.listPublic = async (req, res) => {
          AND published_at <= NOW()`
     );
 
-    // 2) Build SQL dinamicamente: adiciona filtro por categoria apenas se category for passado
+    // 2) Construir SQL dinamicamente: adiciona filtros category e q se fornecidos
     let sql = `
       SELECT p.id, p.title, p.slug, p.lead, p.featured_url, p.published_at,
              c.id AS category_id, c.name AS category_name, c.slug AS category_slug,
@@ -49,9 +51,17 @@ exports.listPublic = async (req, res) => {
     const params = [];
 
     if (category) {
-      // filtro por slug da categoria (seguro, parametrizado)
+      // filtro por slug da categoria (parametrizado)
       sql += ` AND c.slug = ?`;
       params.push(category);
+    }
+
+    if (q) {
+      // busca simples: título, slug, lead, content
+      // usamos LIKE com %term% — parametrize o padrão
+      const pattern = `%${q}%`;
+      sql += ` AND (p.title LIKE ? OR p.slug LIKE ? OR p.lead LIKE ? OR p.content LIKE ?)`;
+      params.push(pattern, pattern, pattern, pattern);
     }
 
     sql += ` ORDER BY p.published_at DESC LIMIT ? OFFSET ?`;
@@ -59,7 +69,7 @@ exports.listPublic = async (req, res) => {
 
     const [rows] = await pool.execute(sql, params);
 
-    // 3) Mapear rows para objeto simples para frontend
+    // 3) Mapear rows para objeto simples (frontend espera essa shape)
     const mapped = rows.map(r => ({
       id: r.id,
       title: r.title,
@@ -84,6 +94,7 @@ exports.listPublic = async (req, res) => {
     return res.status(500).json({ message: "Internal server error" });
   }
 };
+
 
 
 

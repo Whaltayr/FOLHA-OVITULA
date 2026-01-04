@@ -1,31 +1,65 @@
 //App.jsx
 import MainLayout from "./layouts/MainLayout";
 import Home from "./pages/Home";
-import PostDetail from "./pages/PostDetail"
-import Login from "./pages/Login"
-import {Routes, Route } from "react-router-dom"
-// import ProtectedRoute from './components/ProtectedRoute';
-import AdminDashboard from './pages/admin/AdminDashboard'
-import AdminPosts from './pages/admin/AdminPosts'
-import AdminPostForm from './pages/admin/AdminPostForm'
-import ProtectedRoute from './components/ProtectedRoute'
+import PostDetail from "./pages/PostDetail";
+import Login from "./pages/Login";
 
+import { Routes, Route } from "react-router-dom";
+// import ProtectedRoute from './components/ProtectedRoute';
+import AdminDashboard from "./pages/admin/AdminDashboard";
+import AdminPosts from "./pages/admin/AdminPosts";
+import AdminPostForm from "./pages/admin/AdminPostForm";
+import ProtectedRoute from "./components/ProtectedRoute";
+import SearchResults from "./pages/SearchResults";
 
 export default function App() {
   return (
     <MainLayout>
-     <Routes> 
-      <Route path="/" element={<Home/>}></Route>
-      <Route path="/login" element={<Login />} />
-      <Route path="/admin" element={<ProtectedRoute role = "admin"><AdminDashboard/></ProtectedRoute>}></Route>
-      <Route path="/admin/posts" element={<ProtectedRoute role = "admin"><AdminPosts/></ProtectedRoute>}></Route>
-      <Route path="/admin/posts/new" element={<ProtectedRoute role="admin"><AdminPostForm/></ProtectedRoute>}></Route>
-      <Route path="/admin/posts/:id/edit" element={<ProtectedRoute role="admin"><AdminPostForm/></ProtectedRoute>}></Route>
+      <Routes>
+        <Route path="/" element={<Home />}></Route>
+        <Route path="/login" element={<Login />} />
+        <Route path="/search" element={<SearchResults />} />
 
-      <Route path="/post/:slug" element={<PostDetail/>}></Route>
-      {/* <Route path="/admin" element={<ProtectedRoute role="admin"><AdminDashboard/></ProtectedRoute>} /> */}
-      <Route path="*" element={<div className="p-6">Page Not Found</div>}></Route>
-     </Routes>
+        {/* resultados de busca */}
+        <Route
+          path="/admin"
+          element={
+            <ProtectedRoute role="admin">
+              <AdminDashboard />
+            </ProtectedRoute>
+          }
+        ></Route>
+        <Route
+          path="/admin/posts"
+          element={
+            <ProtectedRoute role="admin">
+              <AdminPosts />
+            </ProtectedRoute>
+          }
+        ></Route>
+        <Route
+          path="/admin/posts/new"
+          element={
+            <ProtectedRoute role="admin">
+              <AdminPostForm />
+            </ProtectedRoute>
+          }
+        ></Route>
+        <Route
+          path="/admin/posts/:id/edit"
+          element={
+            <ProtectedRoute role="admin">
+              <AdminPostForm />
+            </ProtectedRoute>
+          }
+        ></Route>
+        <Route path="/post/:slug" element={<PostDetail />}></Route>
+        {/* <Route path="/admin" element={<ProtectedRoute role="admin"><AdminDashboard/></ProtectedRoute>} /> */}
+        <Route
+          path="*"
+          element={<div className="p-6">Page Not Found</div>}
+        ></Route>
+      </Routes>
     </MainLayout>
   );
 }

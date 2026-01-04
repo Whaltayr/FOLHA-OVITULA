@@ -46,10 +46,11 @@ export async function getCategories() {
   return res.json();
 }
 
-/** GET /posts?page=&pageSize=&category=slug */
-export async function getPosts(page = 1, pageSize = 10, categorySlug = null) {
-  const params = new URLSearchParams({ page, pageSize });
+// getPosts(page, pageSize, categorySlug = null, q = null)
+export async function getPosts(page = 1, pageSize = 10, categorySlug = null, q = null) {
+  const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
   if (categorySlug) params.set('category', categorySlug);
+  if (q) params.set('q', q);
   const url = `${API}/posts?${params.toString()}`;
   return fetchWithTimeout(url, { method: 'GET' });
 }

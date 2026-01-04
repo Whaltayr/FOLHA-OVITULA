@@ -1,35 +1,37 @@
-import { useEffect, useMemo, useState } from "react";
-import { Link, useLocation } from "react-router-dom";
+// frontend/src/pages/Home.jsx
+import { useEffect, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import { getPosts } from "../services/api";
 
 /*
-  Home (cards minimalistas):
-  - NÃO busca categorias (agora o header faz isso)
-  - lê query param ?category=slug e passa para getPosts(page,pageSize,category)
-  - mostra apenas: imagem de destaque, título, excerpt (lead) e badge da categoria
+  Home — leitura única dos filtros via URL search params.
+  - NÃO contém o input de busca nem os botões de categoria.
+  - Lê `q` e `category` de useSearchParams() — estes são definidos pelo Header.
+  - Mostra apenas: imagem de destaque, título e excerpt (lead).
 */
 
-// monta URL completa da imagem: aceita caminho relativo ("/uploads/xxx") ou nome
 function resolveImageUrl(path) {
-  if (!path) return "/fallback-image.png"; // sem imagem → fallback local
+  if (!path) return "/fallback-image.png";
   if (path.startsWith("http://") || path.startsWith("https://")) return path;
   const base = import.meta.env.VITE_API_URL || "http://localhost:3001";
   return `${base.replace(/\/$/, "")}/${path.replace(/^\//, "")}`;
 }
 
 export default function Home() {
-  const loc = useLocation();
-  const params = new URLSearchParams(loc.search);
-  const categoryFromQuery = params.get('category') || null; // lê ?category=slug
+  // ler search params da URL (ex.: ?q=eleicoes&category=politica)
+  const [searchParams] = useSearchParams();
+  const q = searchParams.get("q") || null;
+  const category = searchParams.get("category") || null;
 
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // paginação simples (pode expandir depois)
+  // paginação mínima (mantemos page/pageSize, podem ser passados por URL também)
   const [page] = useState(1);
   const [pageSize] = useState(12);
 
+  // Sempre que mudar `q` ou `category` (ou page/pageSize) recarregamos os posts.
   useEffect(() => {
     let mounted = true;
     async function load() {
@@ -37,16 +39,16 @@ export default function Home() {
         setLoading(true);
         setError(null);
 
-        // passa o categorySlug (pode ser null)
-        const postsResp = await getPosts(page, pageSize, categoryFromQuery);
-
+        // chama backend com os filtros vindos da URL
+        const resp = await getPosts(page, pageSize, category, q);
+        // API retorna { page, pageSize, data: [...] } — normaliza
+        const items = resp?.data ?? resp ?? [];
         if (!mounted) return;
-        const items = postsResp?.data ?? postsResp?.posts ?? postsResp ?? [];
         setPosts(Array.isArray(items) ? items : []);
       } catch (err) {
         if (!mounted) return;
         console.error("Home load error", err);
-        setError(err.message || "Falha ao carregar conteúdo");
+        setError(err.message || "Falha ao carregar artigos");
       } finally {
         if (!mounted) return;
         setLoading(false);
@@ -54,22 +56,19 @@ export default function Home() {
     }
     load();
     return () => { mounted = false; };
-  }, [page, pageSize, categoryFromQuery]); // re-executa quando a categoria muda
-
-  // só para renderização (sem filtro client-side agora)
-  const filtered = useMemo(() => posts, [posts]);
+  }, [category, q, page, pageSize]);
 
   if (loading) return <div className="p-6 text-center">Carregando…</div>;
   if (error) return <div className="p-6 text-center text-red-600">Erro: {error}</div>;
 
   return (
     <div className="max-w-6xl mx-auto p-6">
-      {/* grid de cards */}
+      {/* NOTE: filtros e busca foram movidos para o Header — aqui só mostramos resultados */}
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
-        {filtered.length === 0 ? (
+        {posts.length === 0 ? (
           <div className="col-span-full text-center text-gray-600">Nenhum artigo encontrado.</div>
         ) : (
-          filtered.map((post) => {
+          posts.map((post) => {
             const imgUrl = resolveImageUrl(post.featured_url || "");
             return (
               <Link
@@ -86,13 +85,15 @@ export default function Home() {
                       className="w-full h-full object-cover"
                       loading="lazy"
                       onError={(e) => {
-                        // evitar loop: remover handler logo a seguir e trocar src
+                        // Remove o handler e aplica fallback para evitar loop infinito
                         e.currentTarget.onerror = null;
                         e.currentTarget.src = "/fallback-image.png";
                       }}
                     />
                   ) : (
-                    <div className="w-full h-full flex items-center justify-center text-gray-400">Sem imagem</div>
+                    <div className="w-full h-full flex items-center justify-center text-gray-400">
+                      Sem imagem
+                    </div>
                   )}
                 </div>
 

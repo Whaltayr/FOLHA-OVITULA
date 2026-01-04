@@ -1,11 +1,12 @@
+// frontend/src/components/Header.jsx
 import { useEffect, useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { getCategories } from '../services/api';
 
 /*
   Header de dois níveis:
-  - Upper: logo + nav principal (p/ futuras páginas) + botão Entrar
-  - Lower: lista de categorias (vinda do backend) — cada link aponta para /?category=<slug>
+  - Upper: logo + nav + input de pesquisa (agora navega para /search?q=...)
+  - Lower: categorias (links para /?category=slug) — Home lê esse param
 */
 
 export default function Header() {
@@ -13,6 +14,7 @@ export default function Header() {
   const [open, setOpen] = useState(false); // menu mobile
   const [search, setSearch] = useState('');
   const loc = useLocation();
+  const navigate = useNavigate();
 
   useEffect(() => {
     let mounted = true;
@@ -33,14 +35,16 @@ export default function Header() {
   // fechar mobile menu quando muda a rota
   useEffect(() => setOpen(false), [loc.pathname]);
 
+  // usa react-router para navegar (sem reload)
   function onSearchSubmit(e) {
-    e.preventDefault();
+    if (e) e.preventDefault();
     const q = (search || '').trim();
     if (!q) return;
-    // por agora redireciona via query string; podes criar /search depois
-    window.location.href = `/?q=${encodeURIComponent(q)}`;
+    // navega para /search com query param q
+    navigate(`/search?q=${encodeURIComponent(q)}`);
   }
 
+  // navegação mobile/links de categoria: mantêm comportamento para home (filtro por categoria)
   return (
     <header className="bg-white border-b shadow-sm">
       {/* UPPER HEADER: logo + nav minimal + ações */}
@@ -54,14 +58,13 @@ export default function Header() {
             </div>
           </Link>
 
-          {/* nav principal (p/ futuras páginas como 'Sobre', 'Contacto') */}
           <nav className="hidden md:flex items-center gap-4 ml-6">
             <Link to="/" className="text-sm text-gray-700 hover:text-sky-600">Início</Link>
             <Link to="/about" className="text-sm text-gray-700 hover:text-sky-600">Sobre</Link>
           </nav>
         </div>
 
-        {/* ações: pesquisa pequena + Entrar (removei o botão Assinar como combinaste) */}
+        {/* ações: pesquisa pequena + Entrar */}
         <div className="flex items-center gap-3">
           <form onSubmit={onSearchSubmit} className="hidden sm:flex items-center gap-2">
             <input
@@ -88,15 +91,13 @@ export default function Header() {
         </div>
       </div>
 
-      {/* LOWER HEADER: categorias (visível em desktop como barra horizontal) */}
+      {/* LOWER HEADER: categorias (visível em desktop) */}
       <div className="bg-white border-t">
         <div className="max-w-6xl mx-auto px-4">
           <div className="hidden md:flex items-center gap-3 py-2">
-            {/* "Todas" leva à home sem filtro */}
             <Link to="/" className="text-sm px-3 py-1 rounded hover:bg-gray-50">Todas</Link>
 
             {categories.map(cat => (
-              // link para /?category=<slug> — Home vai ler o query param e pedir posts filtrados
               <Link
                 key={cat.id}
                 to={`/?category=${encodeURIComponent(cat.slug)}`}
