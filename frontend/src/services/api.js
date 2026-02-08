@@ -90,10 +90,13 @@ export async function getCategories() {
 
 export async function getMultimedia() {
   try {
-    return await apiFetch('/multimedia');
+    const data = await getPosts(1, 20); // Busca os últimos 20
+    const posts = data.data || [];
+    // Filtra apenas o que tem type 'video' ou 'audio'
+    return posts.filter(p => p.type === 'video' || p.type === 'audio');
   } catch (err) {
-    console.warn('Multimedia endpoint fail:', err);
-    return []; // Fallback silencioso como tinhas antes
+    console.error("Erro getMultimedia:", err);
+    return [];
   }
 }
 
@@ -113,6 +116,7 @@ export async function getPosts(page = 1, pageSize = 10, categorySlug = null, q =
 export async function getPostBySlug(slug) {
   return apiFetch(`/posts/view/${encodeURIComponent(slug)}`);
 }
+
 
 /**
  * ============================================================

@@ -1,82 +1,57 @@
 // frontend/src/components/MultimediaHub.jsx
 import { useEffect, useState, useRef } from "react";
-import { getMultimedia } from "../services/api"; // opcional: se não existir, getMultimedia devolve fallback
-import { FaMicrophone, FaYoutube, FaTwitter, FaInstagram } from "react-icons/fa";
+import { getMultimedia } from "../services/api"; 
+import { FaPlay, FaPause, FaYoutube, FaMicrophone, FaHeadphones } from "react-icons/fa";
 
-/*
-  MultimediaHub
-  - Seção independente, responsiva, 75/25 (player principal à esquerda, lista à direita).
-  - Player principal carrega on-demand (clique) para evitar bloqueio de carregamento.
-  - Lista de áudios usa <audio> nativo; play/pause por cada card.
-  - Topo com hub social em glassmorphism.
-*/
-
-// monta url de embed do youtube (aceita outros providers se quiseres depois)
-function youtubeEmbedUrl(videoId) {
-  return `https://www.youtube.com/embed/${videoId}?rel=0&showinfo=0&autoplay=1`;
+// --- HELPERS ---
+function getYouTubeId(url) {
+  if (!url) return null;
+  const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
+  const match = url.match(regExp);
+  return (match && match[2].length === 11) ? match[2] : null;
 }
 
-// helper: transforma segundos em mm:ss (apenas UI)
-function fmtDuration(sec = 0) {
-  const s = Math.max(0, Math.floor(sec));
-  const mm = Math.floor(s / 60);
-  const ss = s % 60;
-  return `${mm}:${String(ss).padStart(2, "0")}`;
+function resolveImageUrl(path) {
+  if (!path) return '/fallback-image.png';
+  if (path.startsWith('http')) return path;
+  const base = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+  return `${base.replace(/\/$/, '')}/${path.replace(/^\//, '')}`;
+}
+
+function youtubeEmbedUrl(videoId) {
+  return `https://www.youtube.com/embed/${videoId}?rel=0&showinfo=0&autoplay=1&modestbranding=1`;
 }
 
 export default function MultimediaHub() {
-  // dados carregados (do backend ou fallback)
   const [items, setItems] = useState([]);
-  // id do item actualmente no player principal
   const [activeId, setActiveId] = useState(null);
-  // flag para indicar que o embed (iframe) já foi carregado (evita reloads)
   const [embedLoaded, setEmbedLoaded] = useState(false);
-  // estado de reprodução de um audio (id)
   const [playingAudio, setPlayingAudio] = useState(null);
-  // refs para gerir players de audio
   const audioRefs = useRef({});
 
-  // fetch inicial: tenta API, senão usa fallback local
   useEffect(() => {
     let mounted = true;
     async function load() {
       try {
-        const data = await getMultimedia(); // tenta buscar /multimedia
+        const data = await getMultimedia();
         if (!mounted) return;
+
         if (Array.isArray(data) && data.length) {
-          setItems(data);
-          setActiveId(data[0].id); // por padrão, escolhe o primeiro
+          const adapted = data.map(item => {
+            const isYoutube = item.video_url?.includes('youtube') || item.video_url?.includes('youtu.be');
+            return {
+              ...item,
+              provider: isYoutube ? 'youtube' : 'other',
+              videoId: isYoutube ? getYouTubeId(item.video_url) : null,
+              src: item.video_url, 
+              thumbnail: resolveImageUrl(item.featured_url),
+              description: item.lead || item.title
+            };
+          });
+          setItems(adapted);
+          setActiveId(adapted[0].id);
         } else {
-          // fallback local (se API não existir)
-          const fallback = [
-            {
-              id: "vid-1",
-              type: "video",
-              provider: "youtube",
-              videoId: "ysz5S6PUM-U", // sample youtube id (substitui se quiser)
-              title: "Reportagem Especial — Panorama da Semana",
-              description: "Uma síntese em vídeo das notícias que importam.",
-              thumbnail: "/fallback-image.png",
-            },
-            {
-              id: "aud-1",
-              type: "audio",
-              src: "/uploads/sample-podcast-1.mp3",
-              title: "Podcast: Entrevista com X",
-              description: "20 min — conversa sobre temas atuais.",
-              duration: 1200
-            },
-            {
-              id: "aud-2",
-              type: "audio",
-              src: "/uploads/sample-podcast-2.mp3",
-              title: "Reportagem sonora — Regiões",
-              description: "Reportagem em áudio sobre as regiões.",
-              duration: 540
-            }
-          ];
-          setItems(fallback);
-          setActiveId(fallback[0].id);
+            setItems([]); 
         }
       } catch (err) {
         console.error("MultimediaHub load error", err);
@@ -86,7 +61,6 @@ export default function MultimediaHub() {
     return () => { mounted = false; };
   }, []);
 
-  // play/pause para audio cards
   function toggleAudio(id) {
     const el = audioRefs.current[id];
     if (!el) return;
@@ -94,7 +68,6 @@ export default function MultimediaHub() {
       el.pause();
       setPlayingAudio(null);
     } else {
-      // pause outro audio se existir
       if (playingAudio && audioRefs.current[playingAudio]) {
         audioRefs.current[playingAudio].pause();
       }
@@ -103,77 +76,66 @@ export default function MultimediaHub() {
     }
   }
 
-  // quando um audio termina, limpa estado
   function onAudioEnded(id) {
     if (playingAudio === id) setPlayingAudio(null);
   }
 
-  if (!items || items.length === 0) {
-    return null; // nada para mostrar
-  }
+  // Selecionar novo vídeo/audio da lista
+  const handleSelect = (item) => {
+    if (activeId === item.id) return;
+    setActiveId(item.id);
+    setEmbedLoaded(false); 
+    setPlayingAudio(null);
+    // Scroll to top of player smoothly (opcional, bom para mobile)
+    // window.scrollTo({ top: ... }) 
+  };
+
+  if (!items || items.length === 0) return null;
 
   const active = items.find(i => i.id === activeId) || items[0];
-  const rightList = items.filter(i => i.id !== active.id);
 
   return (
-    <section className="mt-12 bg-white rounded-lg shadow overflow-hidden">
-      {/* HUB SOCIAL no topo com glassmorphism */}
-      <div className="p-3 bg-white/30 backdrop-blur-sm border-b">
-        <div className="max-w-6xl mx-auto flex items-center justify-between gap-4">
-          <div>
-            <div className="text-sm font-semibold">Multimédia</div>
-            <div className="text-xs text-gray-600">Ver, ouvir e explorar conteúdos especiais</div>
-          </div>
-
-          {/* links sociais — colocar links reais conforme tua presença */}
-          <div className="flex items-center gap-3">
-            <a href="https://youtube.com" target="_blank" rel="noreferrer" className="p-2 rounded hover:bg-gray-100" aria-label="YouTube">
-              <FaYoutube />
-            </a>
-            <a href="https://twitter.com" target="_blank" rel="noreferrer" className="p-2 rounded hover:bg-gray-100" aria-label="Twitter">
-              <FaTwitter />
-            </a>
-            <a href="https://instagram.com" target="_blank" rel="noreferrer" className="p-2 rounded hover:bg-gray-100" aria-label="Instagram">
-              <FaInstagram />
-            </a>
-          </div>
-        </div>
+    <section className="mt-12 bg-gray-900 rounded-xl shadow-2xl overflow-hidden border border-gray-800">
+      {/* Cabeçalho Compacto */}
+      <div className="px-5 py-3 border-b border-gray-800 flex items-center justify-between bg-black/20">
+        <h2 className="text-white font-bold text-lg flex items-center gap-2">
+          <FaYoutube className="text-red-600" /> 
+          Multimédia
+        </h2>
+        <span className="text-xs text-gray-500 uppercase tracking-wider font-semibold">
+          {items.length} {items.length === 1 ? 'Item' : 'Itens'}
+        </span>
       </div>
 
-      {/* LAYOUT principal: grid 3-col (2fr | 1fr) responsivo */}
-      <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-[2fr,1fr] gap-6 p-6">
-        {/* LEFT: Player principal (iframe para vídeo ou player audio) */}
-        <div>
-          <div className="bg-gray-900 rounded-lg overflow-hidden relative aspect-video">
-            {/* Se é video, mostramos thumbnail + botão que carrega o iframe on-demand */}
+      <div className="grid grid-cols-1 lg:grid-cols-3">
+        
+        {/* --- COLUNA ESQUERDA: PLAYER (Ocupa 2/3) --- */}
+        <div className="lg:col-span-2 bg-black relative flex flex-col">
+          
+          {/* Área do Player (Aspect Ratio 16:9 fixo) */}
+          <div className="relative aspect-video w-full bg-black">
             {active.type === "video" ? (
               <>
                 {!embedLoaded || active.id !== embedLoaded ? (
-                  // thumbnail com botão — evita carregar iframe até ser necessário
-                  <div
-                    className="w-full h-full bg-cover bg-center flex items-center justify-center relative"
-                    style={{ backgroundImage: `url(${active.thumbnail || "/fallback-image.png"})` }}
+                  <div 
+                    className="w-full h-full bg-cover bg-center cursor-pointer group relative"
+                    style={{ backgroundImage: `url(${active.thumbnail})` }}
+                    onClick={() => setEmbedLoaded(active.id)}
                   >
-                    {/* overlay e texto */}
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent"></div>
-                    <button
-                      onClick={() => { setEmbedLoaded(active.id); }}
-                      className="relative z-10 bg-white/90 px-4 py-3 rounded-full text-black font-semibold hover:scale-105 transition"
-                      aria-label="Reproduzir vídeo"
-                    >
-                      ▶ Reproduzir vídeo
-                    </button>
-                    <div className="absolute bottom-4 left-4 right-4 text-white z-10">
-                      <div className="text-xs text-sky-300">{active.category ?? ""}</div>
-                      <div className="font-bold text-lg">{active.title}</div>
-                      {active.description && <div className="text-sm mt-1 opacity-90">{active.description}</div>}
+                    {/* Overlay escuro ao passar o rato */}
+                    <div className="absolute inset-0 bg-black/20 group-hover:bg-black/40 transition-colors"></div>
+                    
+                    {/* Botão Play Limpo (Sem texto extra) */}
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <div className="w-16 h-16 bg-red-600/90 rounded-full flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform backdrop-blur-sm">
+                        <FaPlay className="text-white ml-1 text-2xl" />
+                      </div>
                     </div>
                   </div>
                 ) : (
-                  // iframe embed (autoplay) — só renderiza depois do click
                   <iframe
                     title={active.title}
-                    src={active.provider === "youtube" ? youtubeEmbedUrl(active.videoId) : ""}
+                    src={active.provider === "youtube" ? youtubeEmbedUrl(active.videoId) : active.video_url}
                     className="w-full h-full"
                     frameBorder="0"
                     allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
@@ -182,104 +144,84 @@ export default function MultimediaHub() {
                 )}
               </>
             ) : (
-              // se active é audio, mostramos um player audio grande
-              <div className="w-full h-full flex items-center justify-center p-6">
-                <div className="w-full max-w-2xl bg-white p-4 rounded shadow flex items-center gap-4">
-                  <div>
-                    <button
-                      onClick={() => toggleAudio(active.id)}
-                      className="w-12 h-12 rounded-full bg-sky-600 text-white flex items-center justify-center"
-                      aria-label={playingAudio === active.id ? "Pausar" : "Tocar"}
-                    >
-                      {playingAudio === active.id ? "▌▌" : "▶"}
-                    </button>
-                  </div>
-                  <div className="flex-1">
-                    <div className="font-semibold">{active.title}</div>
-                    <div className="text-xs text-gray-600">{active.description}</div>
-                    <audio
-                      ref={el => { if (el) audioRefs.current[active.id] = el; }}
-                      src={active.src}
-                      onEnded={() => onAudioEnded(active.id)}
-                      preload="none"
-                    />
-                  </div>
-                  {active.duration && <div className="text-xs text-gray-500">{fmtDuration(active.duration)}</div>}
+              // Player de Áudio Otimizado
+              <div className="w-full h-full flex flex-col items-center justify-center bg-gray-900 p-6 relative overflow-hidden">
+                {/* Background desfocado para efeito visual */}
+                <div 
+                  className="absolute inset-0 bg-cover bg-center opacity-10 blur-xl scale-110"
+                  style={{ backgroundImage: `url(${active.thumbnail})` }}
+                ></div>
+
+                <div className="relative z-10 flex flex-col items-center">
+                   <img src={active.thumbnail} alt="" className="w-32 h-32 rounded-lg shadow-2xl mb-6 object-cover border border-gray-700" />
+                   
+                   <div className="flex items-center gap-6">
+                      <button 
+                        onClick={() => toggleAudio(active.id)}
+                        className="w-14 h-14 bg-white text-gray-900 rounded-full flex items-center justify-center hover:bg-gray-200 transition shadow-lg"
+                      >
+                        {playingAudio === active.id ? <FaPause /> : <FaPlay className="ml-1" />}
+                      </button>
+                   </div>
+                   
+                   <audio
+                     ref={el => { if (el) audioRefs.current[active.id] = el; }}
+                     src={active.src}
+                     onEnded={() => onAudioEnded(active.id)}
+                   />
                 </div>
               </div>
             )}
           </div>
 
-          {/* descrição editorial pequena sob o player */}
-          <div className="mt-3 text-sm text-gray-700">
-            {active.description}
+          {/* Info do Video Ativo (Abaixo do Player) */}
+          <div className="p-5">
+            <h3 className="text-xl font-bold text-white leading-tight mb-2">{active.title}</h3>
+            <p className="text-sm text-gray-400 line-clamp-2">{active.description}</p>
           </div>
         </div>
 
-        {/* RIGHT: Lista de áudios / pequenos conteúdos (cards de ação rápida) */}
-        <aside>
-          <div className="flex flex-col gap-3">
-            {rightList.map(item => (
-              <div key={item.id} className="bg-white rounded-lg shadow p-3 flex items-center gap-3 hover:scale-[1.01] transition">
-                <div className="w-12 h-12 bg-gray-100 rounded overflow-hidden flex items-center justify-center">
-                  {item.type === "audio" ? <FaMicrophone /> : <FaYoutube />}
-                </div>
-
-                <div className="flex-1">
-                  <div className="font-semibold text-sm line-clamp-2">{item.title}</div>
-                  <div className="text-xs text-gray-500">{item.description}</div>
-                </div>
-
-                <div className="flex flex-col items-end gap-2">
-                  {/* botão "usar como player principal" */}
-                  <button
-                    onClick={() => {
-                      // selecciona este item como activo; se for video carregar embed imediatamente
-                      setActiveId(item.id);
-                      if (item.type === "video") setEmbedLoaded(item.id);
-                      // se é audio, também inicia reprodução
-                      if (item.type === "audio") {
-                        setTimeout(() => {
-                          const el = audioRefs.current[item.id];
-                          if (el) {
-                            // pausa outro audio
-                            if (playingAudio && audioRefs.current[playingAudio]) {
-                              audioRefs.current[playingAudio].pause();
-                            }
-                            el.play();
-                            setPlayingAudio(item.id);
-                          }
-                        }, 120);
-                      }
-                    }}
-                    className="px-3 py-1 border rounded text-sm bg-sky-50 hover:bg-sky-100"
-                  >
-                    Abrir
-                  </button>
-
-                  {item.type === "audio" && (
-                    <button
-                      onClick={() => toggleAudio(item.id)}
-                      className="text-xs text-gray-600 underline"
-                    >
-                      {playingAudio === item.id ? "Pausar" : "Ouvir"}
-                    </button>
-                  )}
-                </div>
-
-                {/* elemento audio escondido para controle (se for audio) */}
-                {item.type === "audio" && (
-                  <audio
-                    ref={el => { if (el) audioRefs.current[item.id] = el; }}
-                    src={item.src}
-                    preload="none"
-                    onEnded={() => onAudioEnded(item.id)}
-                  />
-                )}
-              </div>
-            ))}
+        {/* --- COLUNA DIREITA: LISTA/PLAYLIST (Ocupa 1/3) --- */}
+        <div className="lg:col-span-1 bg-gray-800 border-l border-gray-700 flex flex-col h-[400px] lg:h-auto">
+          <div className="p-3 bg-gray-800/90 backdrop-blur border-b border-gray-700 text-xs font-bold text-gray-400 uppercase tracking-wider sticky top-0 z-10">
+            A seguir
           </div>
-        </aside>
+          
+          <div className="overflow-y-auto flex-1 custom-scrollbar">
+            {items.map((item) => {
+              const isActive = activeId === item.id;
+              return (
+                <div 
+                  key={item.id} 
+                  onClick={() => handleSelect(item)}
+                  className={`flex gap-3 p-3 cursor-pointer transition-colors border-b border-gray-700/50 hover:bg-gray-700/50 ${isActive ? 'bg-gray-700 border-l-4 border-l-red-500' : 'border-l-4 border-l-transparent'}`}
+                >
+                  {/* Thumbnail Pequena */}
+                  <div className="relative w-24 h-16 bg-gray-900 rounded overflow-hidden flex-shrink-0">
+                    <img src={item.thumbnail} alt="" className={`w-full h-full object-cover ${isActive ? 'opacity-100' : 'opacity-70'}`} />
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/20">
+                       {item.type === 'audio' 
+                         ? <FaHeadphones className="text-white text-xs drop-shadow" /> 
+                         : (isActive && embedLoaded ? <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"/> : <FaPlay className="text-white text-xs drop-shadow" />)
+                       }
+                    </div>
+                  </div>
+
+                  {/* Texto */}
+                  <div className="flex-1 min-w-0 flex flex-col justify-center">
+                    <h4 className={`text-sm font-medium leading-snug line-clamp-2 ${isActive ? 'text-white' : 'text-gray-300'}`}>
+                      {item.title}
+                    </h4>
+                    <span className="text-[10px] text-gray-500 mt-1 uppercase">
+                      {item.type === 'video' ? 'Vídeo' : 'Áudio'}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
       </div>
     </section>
   );
