@@ -1,22 +1,19 @@
 // backend/src/controllers/posts.controller.js
-const pool = require('../config/db');
+const pool = require('../db/connection');
 const { makeSlug, validateTitle } = require('../utils/validation');
 
-/**
- * Helper: detecta erro de duplicado (MySQL2)
- */
-function isDuplicateError(err) {
-  return err && err.code === 'ER_DUP_ENTRY';
-}
+// Auxiliar para erros de duplicado (MySQL Error 1062)
+const isDuplicateError = (err) => err.code === 'ER_DUP_ENTRY' || err.errno === 1062;
 
 /**
- * List public posts (com filtro por categoria opcional)
- * GET /posts?page=&pageSize=&category=<category_slug>
+ * =================================================================================
+ * ÁREA PÚBLICA (Frontend)
+ * =================================================================================
  */
-// ===== listPublic =====
 
-// ===== listPublic =====
-// ===== listPublic =====
+/**
+ * A função mais importante: Lista posts públicos, filtra e auto-publica agendados.
+ */
 exports.listPublic = async (req, res) => {
   try {
     const page = Math.max(1, Number(req.query.page) || 1);
@@ -25,9 +22,9 @@ exports.listPublic = async (req, res) => {
 
     // query params opcionais
     const category = req.query.category ? String(req.query.category).trim() : null;
-    const q = req.query.q ? String(req.query.q).trim() : null; // termo de busca
+    const q = req.query.q ? String(req.query.q).trim() : null;
 
-    // 1) Promoção silenciosa: pending -> published (mantém comportamento)
+    // 1) Promoção silenciosa: pending -> published (O teu "Auto-Publisher")
     await pool.execute(
       `UPDATE posts
        SET status = 'published', updated_at = NOW()
@@ -36,9 +33,11 @@ exports.listPublic = async (req, res) => {
          AND published_at <= NOW()`
     );
 
-    // 2) Construir SQL dinamicamente: adiciona filtros category e q se fornecidos
+    // 2) Construir SQL dinamicamente
+    // ADICIONEI: p.video_url, p.type (Essencial para o player funcionar)
     let sql = `
-      SELECT p.id, p.title, p.slug, p.lead, p.featured_url, p.published_at,
+      SELECT p.id, p.title, p.slug, p.lead, p.featured_url, p.published_at, 
+             p.video_url, p.type,
              c.id AS category_id, c.name AS category_name, c.slug AS category_slug,
              u.id AS author_id, u.name AS author_name
       FROM posts p
@@ -51,14 +50,11 @@ exports.listPublic = async (req, res) => {
     const params = [];
 
     if (category) {
-      // filtro por slug da categoria (parametrizado)
       sql += ` AND c.slug = ?`;
       params.push(category);
     }
 
     if (q) {
-      // busca simples: título, slug, lead, content
-      // usamos LIKE com %term% — parametrize o padrão
       const pattern = `%${q}%`;
       sql += ` AND (p.title LIKE ? OR p.slug LIKE ? OR p.lead LIKE ? OR p.content LIKE ?)`;
       params.push(pattern, pattern, pattern, pattern);
@@ -69,13 +65,15 @@ exports.listPublic = async (req, res) => {
 
     const [rows] = await pool.execute(sql, params);
 
-    // 3) Mapear rows para objeto simples (frontend espera essa shape)
+    // 3) Mapear rows para objeto simples (Mantive a tua estrutura)
     const mapped = rows.map(r => ({
       id: r.id,
       title: r.title,
       slug: r.slug,
       lead: r.lead,
       featured_url: r.featured_url ? String(r.featured_url) : null,
+      video_url: r.video_url, // Novo campo
+      type: r.type,           // Novo campo
       published_at: r.published_at,
       category: r.category_id ? {
         id: r.category_id,
@@ -85,7 +83,7 @@ exports.listPublic = async (req, res) => {
       author: r.author_id ? {
         id: r.author_id,
         name: r.author_name
-      } : { id: null, name: "Desconhecido" }
+      } : { id: null, name: "Redação" }
     }));
 
     return res.json({ page, pageSize, data: mapped });
@@ -95,18 +93,16 @@ exports.listPublic = async (req, res) => {
   }
 };
 
-
-
-
 /**
- * Get one post by slug (public). /posts/view/:slug
+ * Lê um post específico pelo Slug (Público)
  */
-// ===== getBySlug =====
 exports.getBySlug = async (req, res) => {
   try {
     const slug = req.params.slug;
+    // ADICIONEI: p.video_url, p.type
     const [rows] = await pool.execute(
-      `SELECT p.id, p.title, p.slug, p.lead, p.content, p.featured_url, p.published_at, p.status,
+      `SELECT p.id, p.title, p.slug, p.lead, p.content, p.featured_url, 
+              p.video_url, p.type, p.published_at, p.status,
               u.name AS author_name, c.id AS category_id, c.name AS category, c.slug AS category_slug
        FROM posts p
        LEFT JOIN users u ON p.author_id = u.id
@@ -114,12 +110,15 @@ exports.getBySlug = async (req, res) => {
        WHERE p.slug = ? LIMIT 1`,
       [slug]
     );
-    if (!rows.length) return res.status(404).json({ message: 'Not found' });
+    
+    if (!rows.length) return res.status(404).json({ message: 'Post não encontrado' });
 
     const post = rows[0];
+
+    // Se não for público, só admin pode ver
     if (post.status !== 'published') {
       if (!req.user || req.user.role !== 'admin') {
-        return res.status(403).json({ message: 'Forbidden' });
+        return res.status(403).json({ message: 'Acesso negado' });
       }
     }
 
@@ -130,12 +129,115 @@ exports.getBySlug = async (req, res) => {
   }
 };
 
-
 /**
- * Admin: list all posts (inclui drafts e pending)
- * GET /posts/admin
+ * =================================================================================
+ * ÁREA ADMIN (Backoffice)
+ * =================================================================================
  */
-// ===== adminList =====
+
+exports.create = async (req, res) => {
+  try {
+    const {
+      title, slug, lead = null, content = '', categoryId = null, status = 'draft',
+      featuredUrl = null, image = null, video_url = null, type = 'article', published_at
+    } = req.body;
+
+    // Compatibilidade frontend antigo/novo
+    const finalImage = image || featuredUrl || null;
+
+    if (!validateTitle(title)) return res.status(400).json({ message: 'Título inválido' });
+
+    const cleanSlug = makeSlug(slug || title);
+    if (!cleanSlug) return res.status(400).json({ message: 'Slug inválido' });
+
+    // Lógica de agendamento
+    let publishedValue = null;
+    if (published_at !== undefined) {
+      publishedValue = published_at ? new Date(published_at) : null;
+    } else if (status === 'published') {
+      publishedValue = new Date();
+    }
+
+    let statusToSave = ['draft', 'published', 'pending'].includes(status) ? status : 'draft';
+    if (publishedValue instanceof Date) {
+      const now = new Date();
+      statusToSave = publishedValue.getTime() > now.getTime() ? 'pending' : 'published';
+    } else if (statusToSave === 'published' && publishedValue === null) {
+      publishedValue = new Date();
+    }
+
+    const [result] = await pool.execute(
+      `INSERT INTO posts
+       (title, slug, lead, content, featured_url, video_url, type, status, category_id, author_id, published_at, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+      [title.trim(), cleanSlug, lead, content, finalImage, video_url, type, statusToSave, categoryId, req.user.id, publishedValue]
+    );
+
+    return res.status(201).json({ id: result.insertId, status: statusToSave, slug: cleanSlug, message: 'Criado com sucesso' });
+  } catch (err) {
+    if (isDuplicateError(err)) return res.status(409).json({ message: 'Slug já existe' });
+    console.error('Erro create:', err);
+    return res.status(500).json({ message: 'Erro interno' });
+  }
+};
+
+exports.update = async (req, res) => {
+  try {
+    const postId = Number(req.params.id);
+    if (!postId) return res.status(400).json({ message: 'ID inválido' });
+
+    const {
+      title, slug, lead, content, categoryId, status, 
+      featuredUrl, image, video_url, type, published_at
+    } = req.body;
+
+    const [existing] = await pool.execute('SELECT id FROM posts WHERE id = ?', [postId]);
+    if (existing.length === 0) return res.status(404).json({ message: 'Não encontrado' });
+
+    const fields = [];
+    const values = [];
+
+    if (image !== undefined || featuredUrl !== undefined) {
+      fields.push('featured_url = ?');
+      values.push(image || featuredUrl);
+    }
+    if (title !== undefined) { fields.push('title = ?'); values.push(title.trim()); }
+    if (slug !== undefined) { fields.push('slug = ?'); values.push(makeSlug(slug)); }
+    if (lead !== undefined) { fields.push('lead = ?'); values.push(lead); }
+    if (content !== undefined) { fields.push('content = ?'); values.push(content); }
+    if (video_url !== undefined) { fields.push('video_url = ?'); values.push(video_url); }
+    if (type !== undefined) { fields.push('type = ?'); values.push(type); }
+    if (categoryId !== undefined) { fields.push('category_id = ?'); values.push(categoryId); }
+    if (status !== undefined) { fields.push('status = ?'); values.push(status); }
+    if (published_at !== undefined) {
+      fields.push('published_at = ?');
+      values.push(published_at ? new Date(published_at) : null);
+    }
+
+    if (fields.length === 0) return res.status(400).json({ message: 'Nada para atualizar' });
+
+    const sql = `UPDATE posts SET ${fields.join(', ')}, updated_at = NOW() WHERE id = ?`;
+    values.push(postId);
+
+    await pool.execute(sql, values);
+    return res.json({ ok: true });
+  } catch (err) {
+    if (isDuplicateError(err)) return res.status(409).json({ message: 'Slug em uso' });
+    console.error('Erro update:', err);
+    return res.status(500).json({ message: 'Erro interno' });
+  }
+};
+
+exports.remove = async (req, res) => {
+    try {
+        await pool.execute('DELETE FROM posts WHERE id = ?', [req.params.id]);
+        res.json({ message: 'Post eliminado' });
+    } catch (error) {
+        console.error('Erro delete:', error);
+        res.status(500).json({ message: 'Erro ao eliminar' });
+    }
+};
+
 exports.adminList = async (req, res) => {
   try {
     const [rows] = await pool.execute(
@@ -143,216 +245,11 @@ exports.adminList = async (req, res) => {
        FROM posts p
        LEFT JOIN users u ON p.author_id = u.id
        LEFT JOIN categories c ON p.category_id = c.id
-       ORDER BY p.created_at DESC
-       LIMIT 200`
+       ORDER BY p.created_at DESC LIMIT 200`
     );
     return res.json(rows);
   } catch (err) {
     console.error('adminList error', err);
-    return res.status(500).json({ message: 'Internal server error' });
-  }
-};
-
-
-/**
- * Admin: create post
- * POST /posts/admin
- * aceita: title, slug, lead, content, featuredUrl, status, categoryId, published_at (ISO or null)
- */
-exports.create = async (req, res) => {
-  try {
-    const {
-      title,
-      slug,
-      lead = null,
-      content = '',
-      categoryId = null,
-      status = 'draft',
-      featuredUrl = null,
-      published_at // optional: ISO string or null or undefined
-    } = req.body;
-
-    // validações básicas
-    if (!validateTitle(title)) return res.status(400).json({ message: 'Invalid title (3–255 chars)' });
-    const cleanSlug = makeSlug(slug);
-    if (!cleanSlug) return res.status(400).json({ message: 'Invalid slug' });
-
-    // Resolve published value (Date object) e status final
-    let publishedValue = null;
-    if (published_at !== undefined) {
-      publishedValue = published_at ? new Date(published_at) : null;
-    } else if (status === 'published') {
-      // publish now if requested and no published_at provided
-      publishedValue = new Date();
-    } else {
-      publishedValue = null;
-    }
-
-    // Decide final status to save
-    const allowed = ['draft', 'published', 'pending'];
-    let statusToSave = allowed.includes(status) ? status : 'draft';
-
-    if (publishedValue instanceof Date) {
-      const now = new Date();
-      if (publishedValue.getTime() > now.getTime()) {
-        // future date -> mark as pending
-        statusToSave = 'pending';
-      } else {
-        // date in past or now -> ensure published
-        statusToSave = 'published';
-      }
-    } else {
-      // publishedValue null: if statusToSave === 'published' and we didn't set publishedValue above, set now
-      if (statusToSave === 'published' && publishedValue === null) {
-        publishedValue = new Date();
-      }
-    }
-
-    // INSERT (note: pass JS Date for mysql2 -> converts to datetime)
-    const [result] = await pool.execute(
-      `INSERT INTO posts
-       (title, slug, lead, content, featured_url, status, category_id, author_id, published_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        title.trim(),
-        cleanSlug,
-        lead,
-        content || '',
-        featuredUrl,
-        statusToSave,
-        categoryId,
-        req.user.id,
-        publishedValue // Date or null
-      ]
-    );
-
-    return res.status(201).json({ id: result.insertId, status: statusToSave });
-  } catch (err) {
-    if (isDuplicateError(err)) return res.status(409).json({ message: 'Slug already in use' });
-    console.error('create post error', err);
-    return res.status(500).json({ message: 'Internal server error' });
-  }
-};
-
-/**
- * Admin: update post
- * PUT /posts/admin/:id
- * aceita os mesmos campos do create; se frontend não enviar published_at, mantemos a existente
- */
-exports.update = async (req, res) => {
-  try {
-    const postId = Number(req.params.id);
-    if (!postId) return res.status(400).json({ message: 'Invalid post id' });
-
-    const {
-      title,
-      slug,
-      lead,
-      content,
-      categoryId = null,
-      status,         // optional
-      featuredUrl = null,
-      published_at    // optional: ISO string or null
-    } = req.body;
-
-    // garantir existencia
-    const [existingRows] = await pool.execute('SELECT id, status, published_at, slug FROM posts WHERE id = ? LIMIT 1', [postId]);
-    if (!existingRows.length) return res.status(404).json({ message: 'Post not found' });
-    const currentPost = existingRows[0];
-
-    // interpretar published_at vindo do frontend
-    let newPublishedValue;
-    if (published_at !== undefined) {
-      newPublishedValue = published_at ? new Date(published_at) : null;
-    } else {
-      // manter existente
-      newPublishedValue = currentPost.published_at ? new Date(currentPost.published_at) : null;
-    }
-
-    // decide status final
-    const allowed = ['draft', 'published', 'pending'];
-    let statusToSave = currentPost.status; // default keep
-
-    if (newPublishedValue instanceof Date) {
-      const now = new Date();
-      if (newPublishedValue.getTime() > now.getTime()) {
-        statusToSave = 'pending';
-      } else {
-        // newPublishedValue in past or now -> honor requested status if provided (published), else promote pending->published
-        if (status !== undefined && allowed.includes(status)) {
-          statusToSave = status;
-          if (statusToSave === 'pending' && newPublishedValue.getTime() <= Date.now()) statusToSave = 'published';
-        } else {
-          if (currentPost.status === 'pending' && newPublishedValue.getTime() <= Date.now()) statusToSave = 'published';
-        }
-      }
-    } else {
-      // newPublishedValue === null
-      if (status !== undefined && allowed.includes(status)) statusToSave = status;
-    }
-
-    // build update dynamically
-    const fields = [];
-    const values = [];
-
-    if (title !== undefined) {
-      if (!validateTitle(title)) return res.status(400).json({ message: 'Invalid title' });
-      fields.push('title = ?'); values.push(title.trim());
-    }
-    if (slug !== undefined) {
-      const clean = makeSlug(slug);
-      if (!clean) return res.status(400).json({ message: 'Invalid slug' });
-      fields.push('slug = ?'); values.push(clean);
-    }
-    if (lead !== undefined) { fields.push('lead = ?'); values.push(lead); }
-    if (content !== undefined) { fields.push('content = ?'); values.push(content); }
-    if (featuredUrl !== undefined) { fields.push('featured_url = ?'); values.push(featuredUrl); }
-    if (categoryId !== undefined) { fields.push('category_id = ?'); values.push(categoryId); }
-
-    // always set statusToSave (explicit)
-    fields.push('status = ?'); values.push(statusToSave);
-
-    // published_at handling: if frontend sent published_at explicitly, use it; else, possibly set NOW() when promoting pending->published
-    if (published_at !== undefined) {
-      fields.push('published_at = ?'); values.push(newPublishedValue);
-    } else {
-      // if we're promoting pending->published and existing published_at is null -> set NOW()
-      if (currentPost.status === 'pending' && statusToSave === 'published' && !currentPost.published_at) {
-        fields.push('published_at = ?'); values.push(new Date());
-      }
-      // otherwise keep existing published_at (no change)
-    }
-
-    if (fields.length === 0) return res.status(400).json({ message: 'No fields to update' });
-
-    const sql = `UPDATE posts SET ${fields.join(', ')} WHERE id = ?`;
-    values.push(postId);
-
-    try {
-      await pool.execute(sql, values);
-      return res.json({ ok: true, status: statusToSave });
-    } catch (err) {
-      if (isDuplicateError(err)) return res.status(409).json({ message: 'Slug already in use' });
-      console.error('update post error (db execute):', err);
-      return res.status(500).json({ message: 'Internal server error' });
-    }
-  } catch (err) {
-    console.error('update post error:', err);
-    return res.status(500).json({ message: 'Internal server error' });
-  }
-};
-
-/**
- * Admin: delete post
- */
-exports.remove = async (req, res) => {
-  try {
-    const postId = Number(req.params.id);
-    if (!postId) return res.status(400).json({ message: 'Invalid post id' });
-    await pool.execute('DELETE FROM posts WHERE id = ?', [postId]);
-    return res.json({ ok: true });
-  } catch (err) {
-    console.error('delete post error', err);
-    return res.status(500).json({ message: 'Internal server error' });
+    return res.status(500).json({ message: 'Erro interno' });
   }
 };

@@ -1,114 +1,160 @@
 // frontend/src/services/api.js
-const API = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
 /**
- * Base fetch com timeout e tratamento uniforme de erros.
+ * ============================================================
+ * CORE: O "Motor" da nossa API
+ * Substitui o antigo fetchWithTimeout e getAuthHeaders
+ * ============================================================
  */
-async function fetchWithTimeout(url, options = {}, timeout = 10000) {
+async function apiFetch(endpoint, options = {}) {
+  // 1. Token automático
+  const token = localStorage.getItem('token');
+  
+  const headers = {
+    'Content-Type': 'application/json',
+    ...options.headers,
+  };
+
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
+  // 2. Configuração do Body
+  // Se for FormData (upload), o browser define o Content-Type sozinho.
+  // Nós removemos o 'application/json' para não dar conflito.
+  let body = options.body;
+  if (body instanceof FormData) {
+    delete headers['Content-Type'];
+  } else if (body && typeof body === 'object') {
+    body = JSON.stringify(body);
+  }
+
+  // 3. Timeout padrão de 10s (para manter a robustez do teu código anterior)
   const controller = new AbortController();
-  const id = setTimeout(() => controller.abort(), timeout);
+  const timeoutId = setTimeout(() => controller.abort(), 10000);
 
   try {
-    const res = await fetch(url, { ...options, signal: controller.signal });
-    clearTimeout(id);
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(text || `HTTP ${res.status}`);
+    const response = await fetch(`${API_URL}${endpoint}`, {
+      ...options,
+      headers,
+      body,
+      signal: controller.signal
+    });
+
+    clearTimeout(timeoutId);
+
+    // 4. Tratamento de Erros Centralizado
+    if (!response.ok) {
+      if (response.status === 401) {
+        // Opcional: Auto-logout se o token for inválido
+        // localStorage.removeItem('token');
+        // window.location.href = '/login';
+        console.warn('Sessão expirada ou inválida');
+      }
+
+      // Tenta pegar a mensagem de erro do backend ou usa o status text
+      const errorData = await response.json().catch(() => null);
+      const errorMessage = errorData?.message || response.statusText;
+      throw new Error(errorMessage || `Erro HTTP ${response.status}`);
     }
-    return res.json();
-  } catch (err) {
-    if (err.name === 'AbortError') throw new Error('Request timed out');
-    throw err;
+
+    // 5. Retorno Inteligente (JSON ou null)
+    const contentType = response.headers.get('content-type');
+    if (contentType && contentType.includes('application/json')) {
+      return response.json();
+    }
+    return null; // Para respostas 204 No Content
+
+  } catch (error) {
+    clearTimeout(timeoutId);
+    if (error.name === 'AbortError') {
+      throw new Error('O servidor demorou muito para responder (Timeout)');
+    }
+    throw error;
   }
 }
 
 /**
- * Lê token do localStorage (AuthContext deve gravar token lá)
+ * ============================================================
+ * PUBLIC ENDPOINTS
+ * Mantivemos os nomes exatos das funções
+ * ============================================================
  */
-function getAuthHeaders() {
-  const token = (() => {
-    try { return localStorage.getItem('token'); } catch { return null; }
-  })();
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
 
-/* --------------------- PUBLIC --------------------- */
-
-/** GET /categories */
 export async function getCategories() {
-  const url = `${API}/categories`;
-  // reusa fetchWithTimeout se você definiu; se não, faça um fetch simples:
-  const res = await fetch(url);
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(text || 'Failed to load categories');
-  }
-  return res.json();
+  // Antes: 8 linhas de código. Agora: 1 linha.
+  return apiFetch('/categories');
 }
 
-// getPosts(page, pageSize, categorySlug = null, q = null)
+export async function getMultimedia() {
+  try {
+    return await apiFetch('/multimedia');
+  } catch (err) {
+    console.warn('Multimedia endpoint fail:', err);
+    return []; // Fallback silencioso como tinhas antes
+  }
+}
+
+// Mantivemos a lógica de Query Params aqui fora para clareza
 export async function getPosts(page = 1, pageSize = 10, categorySlug = null, q = null) {
-  const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize) });
+  const params = new URLSearchParams({ 
+    page: String(page), 
+    pageSize: String(pageSize) 
+  });
+  
   if (categorySlug) params.set('category', categorySlug);
   if (q) params.set('q', q);
-  const url = `${API}/posts?${params.toString()}`;
-  return fetchWithTimeout(url, { method: 'GET' });
+
+  return apiFetch(`/posts?${params.toString()}`);
 }
 
-/** GET /posts/view/:slug */
 export async function getPostBySlug(slug) {
-  const url = `${API}/posts/view/${encodeURIComponent(slug)}`;
-  return fetchWithTimeout(url, { method: 'GET', headers: { ...getAuthHeaders() } });
+  return apiFetch(`/posts/view/${encodeURIComponent(slug)}`);
 }
 
-/* --------------------- ADMIN --------------------- */
+/**
+ * ============================================================
+ * ADMIN ENDPOINTS
+ * Simplificação drástica graças ao apiFetch
+ * ============================================================
+ */
 
-/** GET /posts/admin */
 export async function getAdminPosts() {
-  const url = `${API}/posts/admin`;
-  return fetchWithTimeout(url, { method: 'GET', headers: { ...getAuthHeaders() } });
+  return apiFetch('/posts/admin');
 }
 
-/** POST /posts/admin */
 export async function createPost(data) {
-  const url = `${API}/posts/admin`;
-  return fetchWithTimeout(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-    body: JSON.stringify(data)
+  return apiFetch('/posts/admin', { 
+    method: 'POST', 
+    body: data // apiFetch já faz o JSON.stringify
   });
 }
 
-/** PUT /posts/admin/:id */
 export async function updatePost(id, data) {
-  const url = `${API}/posts/admin/${id}`;
-  return fetchWithTimeout(url, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
-    body: JSON.stringify(data)
+  return apiFetch(`/posts/admin/${id}`, { 
+    method: 'PUT', 
+    body: data 
   });
 }
 
-/** DELETE /posts/admin/:id */
 export async function deletePost(id) {
-  const url = `${API}/posts/admin/${id}`;
-  return fetchWithTimeout(url, { method: 'DELETE', headers: { ...getAuthHeaders() } });
+  return apiFetch(`/posts/admin/${id}`, { 
+    method: 'DELETE' 
+  });
 }
 
-/** POST /uploads (multipart) -> returns { ok:true, url } */
+/**
+ * Upload de Arquivos
+ * O apiFetch detecta FormData e ajusta os headers sozinho.
+ */
 export async function uploadFile(file) {
-  const url = `${API}/uploads`;
   const fd = new FormData();
   fd.append('file', file);
 
-  const res = await fetch(url, {
+  return apiFetch('/uploads', {
     method: 'POST',
-    headers: { ...getAuthHeaders() }, // do not set Content-Type for FormData
     body: fd
   });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(text || 'Upload failed');
-  }
-  return res.json();
 }

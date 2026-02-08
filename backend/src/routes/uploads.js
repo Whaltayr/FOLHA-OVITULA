@@ -1,54 +1,73 @@
-// src/routes/uploads.js
-const express = require('express');
+// backend/src/routes/uploads.js
+const express = require("express");
 const router = express.Router();
-const multer = require('multer');
-const path = require('path');
-const verifyJWT = require('../middleware/verifyJWT');
-const requireRole = require('../middleware/requireRole');
-const crypto = require('crypto');
-
-// ====== Storage seguro e naming único ======
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    cb(null, path.join(__dirname, '..', '..', 'uploads')); // pasta ../uploads
-  },
-  filename: function (req, file, cb) {
-    // gerar nome único: timestamp + random + extensão original (sanitizada)
-    const ext = path.extname(file.originalname).toLowerCase();
-    const safeExt = ext.replace(/[^a-z0-9.]/g, ''); // pequena sanitização
-    const base = Date.now() + '-' + crypto.randomBytes(6).toString('hex');
-    cb(null, `${base}${safeExt}`);
-  }
-});
-
-// ====== File filter: aceita só imagens (jpg, png, webp, gif) ======
-function fileFilter (req, file, cb) {
-  const allow = /^(image\/jpeg|image\/png|image\/webp|image\/gif)$/;
-  if (allow.test(file.mimetype)) {
-    cb(null, true);
-  } else {
-    cb(new Error('Tipo de ficheiro inválido. Apenas imagens são permitidas.'), false);
-  }
-}
-
-// limites: por exemplo 5MB
-const upload = multer({ storage, fileFilter, limits: { fileSize: 5 * 1024 * 1024 } });
+const multer = require("multer");
+const path = require("path");
+const sharp = require("sharp"); // A nossa nova ferramenta
+const fs = require("fs");
 
 /**
- * POST /uploads
- * Protected: apenas admins (ou autores/autenticados conforme config)
- * Recebe um campo 'file' no multipart/form-data e devolve { url: '/uploads/xxxx.jpg' }
+ * CONFIGURAÇÃO DO MULTER
+ * Diferença chave: Usamos 'memoryStorage' em vez de 'diskStorage'.
+ * Isso guarda o ficheiro na RAM (buffer) para o podermos processar antes de salvar.
  */
-router.post('/', verifyJWT, requireRole('admin'), upload.single('file'), (req, res) => {
-  try {
-    if (!req.file) return res.status(400).json({ message: 'Nenhum ficheiro enviado' });
+const storage = multer.memoryStorage();
 
-    // Construir URL relativa (frontend usa VITE_API_URL + returned.url)
-    const url = `/uploads/${req.file.filename}`;
-    return res.json({ ok: true, url });
+const upload = multer({
+  storage: storage,
+  limits: { fileSize: 5 * 1024 * 1024 }, // Limite de 5MB para não entupir a RAM
+  fileFilter: (req, file, cb) => {
+    // Aceitar apenas imagens
+    if (file.mimetype.startsWith("image/")) {
+      cb(null, true);
+    } else {
+      cb(new Error("Apenas imagens são permitidas neste endpoint"), false);
+    }
+  },
+});
+
+router.post("/", upload.single("file"), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: "Nenhum ficheiro enviado" });
+    }
+
+    // 1. Gerar um nome único
+    const crypto = require("crypto");
+
+    // Em vez de Math.random, usa isto:
+    const hash = crypto.randomBytes(8).toString("hex");
+    const filename = `${Date.now()}-${hash}.webp`;
+
+    // 2. Definir o caminho final
+    // path.join garante que funciona em Windows (\) e Linux (/)
+    const outputPath = path.join(__dirname, "../../uploads", filename);
+
+    // 3. PROCESSAMENTO COM SHARP (A magia)
+    // - Pega no buffer (req.file.buffer)
+    // - Redimensiona se for gigante (opcional, aqui limitamos a largura a 1200px)
+    // - Converte para WebP (formato leve da Google)
+    // - Comprime a qualidade para 80% (quase imperceptível, muito mais leve)
+    // - Grava no disco (.toFile)
+    await sharp(req.file.buffer)
+      .resize(1200, null, {
+        // Largura 1200px, Altura automática (preserva aspecto)
+        withoutEnlargement: true, // Se a imagem for pequena, não estica
+      })
+      .webp({ quality: 80 })
+      .toFile(outputPath);
+
+    // 4. Retornar a URL pública para o Frontend
+    const fileUrl = `${req.protocol}://${req.get("host")}/uploads/${filename}`;
+
+    res.json({
+      ok: true,
+      url: fileUrl,
+      originalName: req.file.originalname,
+    });
   } catch (err) {
-    console.error('upload error', err);
-    return res.status(500).json({ message: 'Erro ao enviar ficheiro' });
+    console.error("Erro no upload:", err);
+    res.status(500).json({ message: "Falha ao processar imagem" });
   }
 });
 

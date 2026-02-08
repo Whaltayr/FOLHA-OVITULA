@@ -2,118 +2,123 @@
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { getPosts } from "../services/api";
-
-/*
-  Home — leitura única dos filtros via URL search params.
-  - NÃO contém o input de busca nem os botões de categoria.
-  - Lê `q` e `category` de useSearchParams() — estes são definidos pelo Header.
-  - Mostra apenas: imagem de destaque, título e excerpt (lead).
-*/
+import HeroCarousel from "../components/HeroCarousel";
+import MultimediaHub from "../components/MultimediaHub";
 
 function resolveImageUrl(path) {
   if (!path) return "/fallback-image.png";
-  if (path.startsWith("http://") || path.startsWith("https://")) return path;
+  if (path.startsWith("http")) return path;
   const base = import.meta.env.VITE_API_URL || "http://localhost:3001";
   return `${base.replace(/\/$/, "")}/${path.replace(/^\//, "")}`;
 }
 
 export default function Home() {
-  // ler search params da URL (ex.: ?q=eleicoes&category=politica)
   const [searchParams] = useSearchParams();
-  const q = searchParams.get("q") || null;
-  const category = searchParams.get("category") || null;
-
+  const q = searchParams.get("q");
+  const category = searchParams.get("category");
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
 
-  // paginação mínima (mantemos page/pageSize, podem ser passados por URL também)
-  const [page] = useState(1);
-  const [pageSize] = useState(12);
-
-  // Sempre que mudar `q` ou `category` (ou page/pageSize) recarregamos os posts.
   useEffect(() => {
-    let mounted = true;
     async function load() {
+      setLoading(true);
       try {
-        setLoading(true);
-        setError(null);
-
-        // chama backend com os filtros vindos da URL
-        const resp = await getPosts(page, pageSize, category, q);
-        // API retorna { page, pageSize, data: [...] } — normaliza
+        const resp = await getPosts(1, 12, category, q);
         const items = resp?.data ?? resp ?? [];
-        if (!mounted) return;
         setPosts(Array.isArray(items) ? items : []);
       } catch (err) {
-        if (!mounted) return;
-        console.error("Home load error", err);
-        setError(err.message || "Falha ao carregar artigos");
+        console.error("Erro ao carregar:", err);
       } finally {
-        if (!mounted) return;
         setLoading(false);
       }
     }
     load();
-    return () => { mounted = false; };
-  }, [category, q, page, pageSize]);
+  }, [category, q]);
 
-  if (loading) return <div className="p-6 text-center">Carregando…</div>;
-  if (error) return <div className="p-6 text-center text-red-600">Erro: {error}</div>;
+  if (loading)
+    return (
+      <div className="p-12 text-center font-medium text-gray-400">
+        Carregando conteúdo editorial...
+      </div>
+    );
 
   return (
-    <div className="max-w-6xl mx-auto p-6">
-      {/* NOTE: filtros e busca foram movidos para o Header — aqui só mostramos resultados */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 py-10">
+      {/* Seção Hero - Mantida conforme configuramos */}
+      {!q && !category && <HeroCarousel />}
+
+      <header className="flex items-end justify-between mb-10 border-b-2 border-black pb-2">
+        <h2 className="text-3xl font-black uppercase tracking-tighter">
+          {q ? `Busca: ${q}` : category ? category : "Explorar"}
+        </h2>
+        <span className="text-sm font-bold text-gray-400 pb-1">
+          {posts.length} Artigos
+        </span>
+      </header>
+
+      {/* O NOVO GRID HORIZONTAL */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-10 gap-y-16">
         {posts.length === 0 ? (
-          <div className="col-span-full text-center text-gray-600">Nenhum artigo encontrado.</div>
+          <div className="col-span-full text-center py-20 text-gray-400 italic">
+            Nenhum artigo encontrado.
+          </div>
         ) : (
-          posts.map((post) => {
-            const imgUrl = resolveImageUrl(post.featured_url || "");
-            return (
-              <Link
-                to={`/post/${post.slug}`}
-                key={post.id}
-                className="bg-white rounded-lg shadow hover:shadow-lg overflow-hidden flex flex-col"
-                aria-label={post.title || "Artigo"}
-              >
-                <div className="h-48 bg-gray-100 overflow-hidden">
-                  {post.featured_url ? (
-                    <img
-                      src={imgUrl}
-                      alt={post.title}
-                      className="w-full h-full object-cover"
-                      loading="lazy"
-                      onError={(e) => {
-                        // Remove o handler e aplica fallback para evitar loop infinito
-                        e.currentTarget.onerror = null;
-                        e.currentTarget.src = "/fallback-image.png";
-                      }}
-                    />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-gray-400">
-                      Sem imagem
-                    </div>
-                  )}
-                </div>
+          posts.map((post) => (
+            <Link
+              to={`/post/${post.slug}`}
+              key={post.id}
+              className="group flex flex-col bg-white rounded-xl border border-gray-100 shadow-[0_2px_15px_-3px_rgba(0,0,0,0.07),0_10px_20px_-2px_rgba(0,0,0,0.04)] hover:shadow-[0_20px_25px_-5px_rgba(0,0,0,0.1),0_10px_10px_-5px_rgba(0,0,0,0.04)] transition-all duration-300 hover:-translate-y-1 overflow-hidden"
+            >
+              {/* Container da Imagem */}
+              <div className="relative aspect-video overflow-hidden bg-gray-50">
+                <img
+                  src={resolveImageUrl(post.featured_url)}
+                  alt={post.title}
+                  className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                  loading="lazy"
+                />
+                {/* Overlay sutil para dar contraste à categoria */}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
 
-                <div className="p-4 flex flex-col flex-1">
-                  <div className="flex items-center justify-between gap-3 mb-2">
-                    <h2 className="font-semibold text-lg">{post.title || "Sem título"}</h2>
-                    {post.category?.name && (
-                      <div className="text-xs px-2 py-1 bg-gray-100 rounded text-gray-600">{post.category.name}</div>
-                    )}
+                {post.category?.name && (
+                  <div className="absolute top-3 left-3">
+                    <span className="bg-white/90 backdrop-blur-sm text-gray-900 text-[10px] font-bold px-2.5 py-1 rounded-md uppercase tracking-wider shadow-sm">
+                      {post.category.name}
+                    </span>
                   </div>
+                )}
+              </div>
 
-                  <p className="text-sm text-gray-700 flex-1">
-                    {post.lead ?? (post.content ? (post.content.slice(0, 140) + "…") : "")}
-                  </p>
+              {/* Conteúdo do Card */}
+              <div className="p-5 flex flex-col flex-1">
+                <h3 className="text-lg font-bold leading-tight text-gray-900 mb-2 group-hover:text-blue-600 transition-colors line-clamp-2">
+                  {post.title}
+                </h3>
+
+                <p className="text-gray-500 text-sm line-clamp-3 mb-4 leading-relaxed">
+                  {post.lead ??
+                    (post.content ? post.content.slice(0, 100) + "..." : "")}
+                </p>
+
+                {/* Footer com separador sutil */}
+                <div className="mt-auto pt-4 border-t border-gray-50 flex items-center justify-between">
+                  <span className="text-[11px] font-bold uppercase tracking-widest text-blue-600">
+                    Ler notícia
+                  </span>
+                  <div className="w-8 h-8 rounded-full bg-gray-50 flex items-center justify-center group-hover:bg-blue-50 transition-colors">
+                    <span className="text-gray-400 group-hover:text-blue-600 transition-transform group-hover:translate-x-0.5">
+                      →
+                    </span>
+                  </div>
                 </div>
-              </Link>
-            );
-          })
+              </div>
+            </Link>
+          ))
         )}
       </div>
+
+      <MultimediaHub/>
+
     </div>
   );
 }
