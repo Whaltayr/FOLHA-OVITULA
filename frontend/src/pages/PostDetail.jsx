@@ -151,9 +151,15 @@ export default function PostDetail() {
       {/* MEDIA PLAYER (VÍDEO/ÁUDIO/IMAGEM) */}
       {renderMedia()}
 
-      {/* CONTEÚDO */}
+    
+      {/* CONTEÚDO (HTML do Editor) */}
       <div
-        className="prose prose-lg prose-blue max-w-none text-gray-800 leading-relaxed"
+        className="
+          prose prose-lg prose-blue max-w-none 
+          text-gray-800 leading-relaxed 
+          w-full break-words overflow-hidden
+          [&>p]:mb-4 [&>h2]:mt-8 [&>h2]:mb-4 [&>ul]:list-disc [&>ul]:pl-5
+        "
         dangerouslySetInnerHTML={{ __html: safeHtml }}
       />
 

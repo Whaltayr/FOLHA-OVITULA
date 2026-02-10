@@ -240,13 +240,28 @@ exports.remove = async (req, res) => {
 
 exports.adminList = async (req, res) => {
   try {
-    const [rows] = await pool.execute(
-      `SELECT p.*, u.name AS author_name, c.id AS category_id, c.name AS category
-       FROM posts p
-       LEFT JOIN users u ON p.author_id = u.id
-       LEFT JOIN categories c ON p.category_id = c.id
-       ORDER BY p.created_at DESC LIMIT 200`
-    );
+    // Lógica Inteligente:
+    // Se for 'author', vê só os dele.
+    // Se for 'admin' ou 'editor', vê todos.
+    
+    let sql = `
+      SELECT p.*, u.name AS author_name, c.id AS category_id, c.name AS category
+      FROM posts p
+      LEFT JOIN users u ON p.author_id = u.id
+      LEFT JOIN categories c ON p.category_id = c.id
+    `;
+    
+    const params = [];
+
+    // O FILTRO MÁGICO
+    if (req.user.role === 'author') {
+      sql += ` WHERE p.author_id = ?`;
+      params.push(req.user.id);
+    }
+
+    sql += ` ORDER BY p.created_at DESC LIMIT 200`;
+
+    const [rows] = await pool.execute(sql, params);
     return res.json(rows);
   } catch (err) {
     console.error('adminList error', err);

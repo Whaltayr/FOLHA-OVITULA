@@ -90,7 +90,7 @@ export default function Home() {
                 >
                   <div className="h-48 bg-gray-200 overflow-hidden relative">
                     {post.category?.name && (
-                      <span className="absolute top-2 left-2 z-10 bg-blue-600 text-white text-[10px] font-bold px-2 py-1 rounded shadow-sm">
+                      <span className="absolute top-2 left-2 z-10 bg-white   text-black text-[10px] font-bold px-2 py-1 rounded shadow-sm">
                         {post.category.name}
                       </span>
                     )}

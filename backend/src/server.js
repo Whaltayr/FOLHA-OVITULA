@@ -10,6 +10,11 @@ const app = express();
 // parse JSON bodies
 app.use(express.json());
 
+// === A CORREÇÃO ESTÁ AQUI ===
+// Aumentamos o limite para 50mb para aceitar artigos longos ou imagens em Base64
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+
 // CORS: permite o frontend local (Vite) acessar a API
 app.use(cors({
   origin: process.env.FRONTEND_ORIGIN || 'http://localhost:5173',

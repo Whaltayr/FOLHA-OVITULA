@@ -1,1 +1,32 @@
 @import "tailwindcss";
+
+/* frontend/src/index.css */
+
+/* Ajustes para o Editor */
+.ql-editor {
+  min-height: 300px;
+  font-size: 1rem;
+  line-height: 1.6;
+}
+
+.ql-container {
+  border-bottom-left-radius: 0.5rem;
+  border-bottom-right-radius: 0.5rem;
+  background-color: white;
+}
+
+.ql-toolbar {
+  border-top-left-radius: 0.5rem;
+  border-top-right-radius: 0.5rem;
+  background-color: #f9fafb;
+}
+
+/* Garante que imagens dentro do post não ultrapassem a largura */
+/* Garante que imagens no editor e no post respeitem a largura */
+.ql-editor img, .prose-editor img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+  margin: 10px 0;
+  display: block;
+}

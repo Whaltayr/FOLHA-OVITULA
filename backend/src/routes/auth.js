@@ -1,61 +1,56 @@
-// src/routes/auth.js
 const express = require("express");
-const bcrypt = require("bcrypt");
+const bcrypt = require("bcrypt"); // Ou 'bcryptjs' se for o que tens instalado
 const jwt = require("jsonwebtoken");
-const pool = require("../config/db");
+const pool = require("../config/db"); // Confirma se o caminho da DB está certo
 
 const router = express.Router();
 
 router.post("/login", async (req, res) => {
+  console.log("\n🔴 [BACKEND] ROTA LOGIN CHAMADA");
   const { email, password } = req.body || {};
-  if (!email || !password)
+
+  console.log(`🔴 [BACKEND] Email recebido: ${email}`);
+
+  if (!email || !password) {
+    console.log("🔴 [BACKEND] Erro: Falta email ou password");
     return res.status(400).json({ message: "Email and password required" });
+  }
 
   try {
-    // query parametrizada para evitar SQL injection
     const [rows] = await pool.execute(
       "SELECT id, email, password, name, role FROM users WHERE email = ? LIMIT 1",
       [email]
     );
 
     if (rows.length === 0) {
-      // evita dizer "email inexistente" por segurança
+      console.log("🔴 [BACKEND] Erro: Utilizador não encontrado na BD");
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
     const user = rows[0];
+    console.log(`🔴 [BACKEND] User encontrado: ID=${user.id}, Nome=${user.name}, ROLE=${user.role}`);
 
-    // comparar password plain com hash no DB
     const match = await bcrypt.compare(password, user.password);
-    if (!match) return res.status(401).json({ message: "Invalid credentials" });
+    if (!match) {
+      console.log("🔴 [BACKEND] Erro: Password incorreta");
+      return res.status(401).json({ message: "Invalid credentials" });
+    }
 
-    //create JWT payload (minimal)
+    // AQUI É O PONTO CRÍTICO: O PAYLOAD DO TOKEN
     const payload = { id: user.id, role: user.role };
+    console.log("🔴 [BACKEND] Gerando Token com Payload:", payload);
 
-    //sign token
     const token = jwt.sign(payload, process.env.JWT_SECRET, {
       expiresIn: process.env.JWT_EXPIRES_IN || "2h",
     });
 
-        /* Optional: set HttpOnly cookie (safer against XSS)
-    // Note: secure:true should be used in production with HTTPS
-    res.cookie('ov_token', token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 1000 * 60 * 60 * 2, // 2 hours in ms (keep in sync with expiresIn)
-    });*/
-
-    // sucesso — devolve user (sem password). Podes adicionar JWT aqui se quiseres.
-    const safeUser = {
-      id: user.id,
-      email: user.email,
-      name: user.name,
-      role: user.role,
-    };
+    const safeUser = { id: user.id, email: user.email, name: user.name, role: user.role };
+    
+    console.log("🔴 [BACKEND] Login Sucesso! A enviar resposta...");
     return res.json({ token, user: safeUser });
+
   } catch (err) {
-    console.error("Login error:", err);
+    console.error("🔴 [BACKEND] CRASH NO LOGIN:", err);
     return res.status(500).json({ message: "Internal server error" });
   }
 });

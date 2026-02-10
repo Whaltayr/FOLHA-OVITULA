@@ -1,76 +1,60 @@
-// frontend/src/context/AuthContext.jsx
-import React, { createContext, useContext, useState, useEffect } from 'react';
-
-/**
- * AuthContext minimal — guarda token + user em localStorage.
- * - Intenção: simples, testável, sem dependências externas.
- * - Segurança: para produção preferir cookie HttpOnly; aqui usamos localStorage
- *   por simplicidade pedagógica (vou explicar depois).
- */
+import { createContext, useState, useContext, useEffect } from 'react';
+import { apiFetch } from '../services/api';
 
 const AuthContext = createContext();
 
 export function AuthProvider({ children }) {
-  const [token, setToken] = useState(() => {
-    try { return localStorage.getItem('token'); } catch { return null; }
-  });
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
 
-  const [user, setUser] = useState(() => {
-    try {
-      const raw = localStorage.getItem('user');
-      return raw ? JSON.parse(raw) : null;
-    } catch {
-      return null;
+  useEffect(() => {
+    // Restaurar sessão ao recarregar página
+    const storedUser = localStorage.getItem('user');
+    const token = localStorage.getItem('token');
+    
+    if (storedUser && token) {
+      console.log("🟣 [AUTH-CONTEXT] Sessão restaurada do LocalStorage:", JSON.parse(storedUser));
+      setUser(JSON.parse(storedUser));
     }
-  });
+    setLoading(false);
+  }, []);
 
-  // loading flag for UI when we call login/save
-  const [loading, setLoading] = useState(false);
-
-  // Save token & user (call after successful login)
-  function saveLogin(newToken, userData = null) {
+  const login = async (email, password) => {
+    console.log("🟣 [AUTH-CONTEXT] A tentar fazer login...");
     try {
-      if (newToken) {
-        localStorage.setItem('token', newToken);
-        setToken(newToken);
+      const data = await apiFetch('/auth/login', {
+        method: 'POST',
+        body: { email, password },
+      });
+
+      console.log("🟣 [AUTH-CONTEXT] Resposta do Login:", data);
+
+      if (data.token && data.user) {
+        localStorage.setItem('token', data.token);
+        localStorage.setItem('user', JSON.stringify(data.user));
+        setUser(data.user);
+        console.log("🟣 [AUTH-CONTEXT] Login OK! Token guardado.");
+        return true;
       }
-      if (userData) {
-        localStorage.setItem('user', JSON.stringify(userData));
-        setUser(userData);
-      }
-    } catch (err) {
-      console.error('Auth save error', err);
+    } catch (error) {
+      console.error("🟣 [AUTH-CONTEXT] Erro no login:", error);
+      throw error;
     }
-  }
+    return false;
+  };
 
-  // Logout clears everything
-  function logout() {
-    try {
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
-    } catch (err) {
-      console.error('Auth logout error', err);
-    }
-    setToken(null);
+  const logout = () => {
+    console.log("🟣 [AUTH-CONTEXT] Logout efetuado");
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
     setUser(null);
-  }
+  };
 
-  // Optional: a helper to return auth headers for API calls
-  function authHeaders() {
-    return token ? { Authorization: `Bearer ${token}` } : {};
-  }
-
-  // Expose a small API
-  const value = { token, user, loading, setLoading, saveLogin, logout, authHeaders };
-
-   return (
-  <AuthContext.Provider value={value}>
-    {children}  
-  </AuthContext.Provider>
-);
+  return (
+    <AuthContext.Provider value={{ user, login, logout, loading }}>
+      {!loading && children}
+    </AuthContext.Provider>
+  );
 }
 
-// Hook for components
-export function useAuth() {
-  return useContext(AuthContext);
-}
+export const useAuth = () => useContext(AuthContext);

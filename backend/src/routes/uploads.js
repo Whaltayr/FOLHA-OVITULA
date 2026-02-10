@@ -1,73 +1,47 @@
 // backend/src/routes/uploads.js
-const express = require("express");
+const express = require('express');
 const router = express.Router();
-const multer = require("multer");
-const path = require("path");
-const sharp = require("sharp"); // A nossa nova ferramenta
-const fs = require("fs");
+const multer = require('multer');
+const path = require('path');
+const sharp = require('sharp');
+const fs = require('fs');
 
-/**
- * CONFIGURAÇÃO DO MULTER
- * Diferença chave: Usamos 'memoryStorage' em vez de 'diskStorage'.
- * Isso guarda o ficheiro na RAM (buffer) para o podermos processar antes de salvar.
- */
-const storage = multer.memoryStorage();
+const storage = multer.memoryStorage(); // Mantemos na memória para processar
+const upload = multer({ storage });
 
-const upload = multer({
-  storage: storage,
-  limits: { fileSize: 5 * 1024 * 1024 }, // Limite de 5MB para não entupir a RAM
-  fileFilter: (req, file, cb) => {
-    // Aceitar apenas imagens
-    if (file.mimetype.startsWith("image/")) {
-      cb(null, true);
-    } else {
-      cb(new Error("Apenas imagens são permitidas neste endpoint"), false);
-    }
-  },
-});
-
-router.post("/", upload.single("file"), async (req, res) => {
+router.post('/', upload.single('file'), async (req, res) => {
   try {
-    if (!req.file) {
-      return res.status(400).json({ message: "Nenhum ficheiro enviado" });
+    if (!req.file) return res.status(400).json({ message: 'Nenhum ficheiro enviado' });
+
+    const isImage = req.file.mimetype.startsWith('image/');
+    const isAudio = req.file.mimetype.startsWith('audio/');
+    
+    // 1. Gerar nome único
+    const uniqueName = `${Date.now()}-${Math.round(Math.random() * 1E9)}`;
+    let filename = '';
+    let outputPath = '';
+
+    if (isImage) {
+      // Processamento de Imagem (WebP)
+      filename = `${uniqueName}.webp`;
+      outputPath = path.join(__dirname, '../../uploads', filename);
+      await sharp(req.file.buffer).resize(1200, null, { withoutEnlargement: true }).webp({ quality: 80 }).toFile(outputPath);
+    } else if (isAudio) {
+      // Processamento de Áudio (Apenas guardar)
+      const extension = path.extname(req.file.originalname) || '.mp3';
+      filename = `${uniqueName}${extension}`;
+      outputPath = path.join(__dirname, '../../uploads', filename);
+      fs.writeFileSync(outputPath, req.file.buffer); // Grava o buffer original
+    } else {
+      return res.status(400).json({ message: 'Tipo de ficheiro não suportado' });
     }
 
-    // 1. Gerar um nome único
-    const crypto = require("crypto");
+    const fileUrl = `${req.protocol}://${req.get('host')}/uploads/${filename}`;
+    res.json({ ok: true, url: fileUrl });
 
-    // Em vez de Math.random, usa isto:
-    const hash = crypto.randomBytes(8).toString("hex");
-    const filename = `${Date.now()}-${hash}.webp`;
-
-    // 2. Definir o caminho final
-    // path.join garante que funciona em Windows (\) e Linux (/)
-    const outputPath = path.join(__dirname, "../../uploads", filename);
-
-    // 3. PROCESSAMENTO COM SHARP (A magia)
-    // - Pega no buffer (req.file.buffer)
-    // - Redimensiona se for gigante (opcional, aqui limitamos a largura a 1200px)
-    // - Converte para WebP (formato leve da Google)
-    // - Comprime a qualidade para 80% (quase imperceptível, muito mais leve)
-    // - Grava no disco (.toFile)
-    await sharp(req.file.buffer)
-      .resize(1200, null, {
-        // Largura 1200px, Altura automática (preserva aspecto)
-        withoutEnlargement: true, // Se a imagem for pequena, não estica
-      })
-      .webp({ quality: 80 })
-      .toFile(outputPath);
-
-    // 4. Retornar a URL pública para o Frontend
-    const fileUrl = `${req.protocol}://${req.get("host")}/uploads/${filename}`;
-
-    res.json({
-      ok: true,
-      url: fileUrl,
-      originalName: req.file.originalname,
-    });
   } catch (err) {
-    console.error("Erro no upload:", err);
-    res.status(500).json({ message: "Falha ao processar imagem" });
+    console.error(err);
+    res.status(500).json({ message: 'Erro no servidor' });
   }
 });
 

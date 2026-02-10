@@ -1,17 +1,11 @@
 // frontend/src/services/api.js
-
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
 
-/**
- * ============================================================
- * CORE: O "Motor" da nossa API
- * Substitui o antigo fetchWithTimeout e getAuthHeaders
- * ============================================================
- */
-async function apiFetch(endpoint, options = {}) {
-  // 1. Token automático
+export async function apiFetch(endpoint, options = {}) {
   const token = localStorage.getItem('token');
   
+  console.log(`\n🟢 [FRONTEND-API] Fetching: ${endpoint}`);
+
   const headers = {
     'Content-Type': 'application/json',
     ...options.headers,
@@ -19,11 +13,11 @@ async function apiFetch(endpoint, options = {}) {
 
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
+    console.log('🟢 [FRONTEND-API] Token anexado ao header');
+  } else {
+    console.log('🟢 [FRONTEND-API] ⚠️ AVISO: Sem token no localStorage!');
   }
 
-  // 2. Configuração do Body
-  // Se for FormData (upload), o browser define o Content-Type sozinho.
-  // Nós removemos o 'application/json' para não dar conflito.
   let body = options.body;
   if (body instanceof FormData) {
     delete headers['Content-Type'];
@@ -31,51 +25,29 @@ async function apiFetch(endpoint, options = {}) {
     body = JSON.stringify(body);
   }
 
-  // 3. Timeout padrão de 10s (para manter a robustez do teu código anterior)
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 10000);
-
   try {
     const response = await fetch(`${API_URL}${endpoint}`, {
       ...options,
       headers,
       body,
-      signal: controller.signal
     });
 
-    clearTimeout(timeoutId);
-
-    // 4. Tratamento de Erros Centralizado
     if (!response.ok) {
-      if (response.status === 401) {
-        // Opcional: Auto-logout se o token for inválido
-        // localStorage.removeItem('token');
-        // window.location.href = '/login';
-        console.warn('Sessão expirada ou inválida');
-      }
-
-      // Tenta pegar a mensagem de erro do backend ou usa o status text
-      const errorData = await response.json().catch(() => null);
-      const errorMessage = errorData?.message || response.statusText;
-      throw new Error(errorMessage || `Erro HTTP ${response.status}`);
+        console.log(`🟢 [FRONTEND-API] ❌ Erro HTTP: ${response.status}`);
+        const errorData = await response.json().catch(() => null);
+        throw new Error(errorData?.message || response.statusText);
     }
-
-    // 5. Retorno Inteligente (JSON ou null)
+    
     const contentType = response.headers.get('content-type');
     if (contentType && contentType.includes('application/json')) {
       return response.json();
     }
-    return null; // Para respostas 204 No Content
-
+    return null;
   } catch (error) {
-    clearTimeout(timeoutId);
-    if (error.name === 'AbortError') {
-      throw new Error('O servidor demorou muito para responder (Timeout)');
-    }
+    console.error("🟢 [FRONTEND-API] Erro Fatal:", error);
     throw error;
   }
 }
-
 /**
  * ============================================================
  * PUBLIC ENDPOINTS
