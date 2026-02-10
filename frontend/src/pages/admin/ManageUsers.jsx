@@ -1,6 +1,8 @@
 // frontend/src/pages/admin/ManageUsers.jsx
 import { useEffect, useState } from "react";
 import { apiFetch } from "../../services/api"; // Usa o nosso fetch inteligente
+import { Link } from "react-router-dom"; // <--- Importar Link
+import { FaArrowLeft } from "react-icons/fa"; // <--- Importar Ícone
 
 export default function ManageUsers() {
   const [users, setUsers] = useState([]);
@@ -60,7 +62,12 @@ export default function ManageUsers() {
 
   return (
     <div className="max-w-6xl mx-auto p-6">
-      <h1 className="text-2xl font-bold mb-6 text-gray-800">Gerir Equipa & Utilizadores</h1>
+     {/* === BOTÃO VOLTAR === */}
+    <Link to="/admin" className="inline-flex items-center text-gray-500 hover:text-blue-600 mb-6 transition font-medium">
+      <FaArrowLeft className="mr-2" /> Voltar ao Painel
+    </Link>
+
+    <h1 className="text-2xl font-bold mb-6 text-gray-800">Gerir Equipa & Utilizadores</h1>
 
       {error && <div className="bg-red-100 text-red-700 p-4 rounded mb-4">{error}</div>}
 

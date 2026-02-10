@@ -34,6 +34,8 @@ app.use('/admin', require('./routes/admin'));     // admin endpoints (me)
 app.use('/categories', require('./routes/categories')); // nova rota categories
 app.use('/uploads', require('./routes/uploads')); // rota POST /uploads (multer)
 
+app.use('/users', require('./routes/users'));
+
 // start server
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => console.log(`🚀 Backend listening on ${PORT}`));

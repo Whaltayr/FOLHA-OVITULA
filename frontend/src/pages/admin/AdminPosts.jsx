@@ -1,6 +1,7 @@
 // frontend/src/pages/admin/AdminPosts.jsx
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { FaArrowLeft, FaPlus, FaEdit, FaTrash } from "react-icons/fa";
 import { getAdminPosts, deletePost, getCategories } from "../../services/api";
 const API = import.meta.env.VITE_API_URL || "http://localhost:3001";
 
@@ -124,27 +125,19 @@ export default function AdminPosts() {
   return (
     <div className="max-w-5xl mx-auto p-6">
       <header className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
-        <div>
-          <h1 className="font-bold text-2xl">Artigos • Admin</h1>
-          <div className="text-sm text-gray-500 mt-1">
-            Gerir artigos: criar, editar, publicar e remover.
-          </div>
-        </div>
+      
 
-        <div className="flex gap-2">
-          <Link
-            to="/admin/posts/new"
-            className="px-3 py-2 rounded bg-blue-600 text-white"
-          >
-            Novo artigo
-          </Link>
-          <Link
-            to="/"
-            className="px-3 py-2 bg-white shadow border rounded text-sm text-gray-700"
-          >
-            Ver site
-          </Link>
-        </div>
+       {/* === BOTÃO VOLTAR === */}
+    <Link to="/admin" className="inline-flex items-center text-gray-500 hover:text-blue-600 mb-6 transition font-medium">
+      <FaArrowLeft className="mr-2" /> Voltar ao Painel
+    </Link>
+
+    <div className="flex justify-between items-center mb-6">
+      <h1 className="text-2xl font-bold text-gray-800 mr-3">Gerir Artigos</h1>
+      <Link to="/admin/posts/new" className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-blue-700 transition">
+        <FaPlus /> Novo Artigo
+      </Link>
+    </div>
       </header>
 
       <div className="bg-white p-4 rounded-lg shadow-sm mb-6">
